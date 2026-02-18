@@ -1,0 +1,54 @@
+[
+  {
+    "delay_ms": 30,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-dup-hello-1",
+      "device_id": "replay-dev-dup",
+      "session_id": "replay-sess-dup",
+      "seq": 1,
+      "ts": 1771400100001,
+      "type": "hello",
+      "payload": {}
+    }
+  },
+  {
+    "delay_ms": 10,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-dup-hb-3",
+      "device_id": "replay-dev-dup",
+      "session_id": "replay-sess-dup",
+      "seq": 3,
+      "ts": 1771400100030,
+      "type": "heartbeat",
+      "payload": {}
+    }
+  },
+  {
+    "delay_ms": 10,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-dup-hb-2",
+      "device_id": "replay-dev-dup",
+      "session_id": "replay-sess-dup",
+      "seq": 2,
+      "ts": 1771400100040,
+      "type": "heartbeat",
+      "payload": {}
+    }
+  },
+  {
+    "delay_ms": 0,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-dup-hb-3-again",
+      "device_id": "replay-dev-dup",
+      "session_id": "replay-sess-dup",
+      "seq": 3,
+      "ts": 1771400100050,
+      "type": "heartbeat",
+      "payload": {}
+    }
+  }
+]
