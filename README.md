@@ -141,6 +141,127 @@ nanobot agent
 
 That's it! You have a working AI assistant in 2 minutes.
 
+## Deployment Profiles
+
+Config templates (merge into `~/.nanobot/config.json`):
+
+1. `CONFIG_PROFILE_DEV.json`
+2. `CONFIG_PROFILE_STAGING.json`
+3. `CONFIG_PROFILE_PROD.json`
+
+Merge helper:
+
+```bash
+nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
+```
+
+Validate merge only (no write):
+
+```bash
+nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json --dry-run
+```
+
+Validate current config:
+
+```bash
+nanobot config check --strict
+```
+
+SRE operation runbook:
+
+1. `SRE_RUNBOOK.md`
+
+## 🦯 Hardware Runtime + Lifelog API
+
+For blindcane backend integration, start hardware runtime:
+
+```bash
+nanobot hardware serve --adapter ec600 --logs
+```
+
+Control API default address: `http://127.0.0.1:18792`
+
+Lifelog endpoints:
+
+1. `POST /v1/lifelog/enqueue_image`
+2. `POST /v1/lifelog/query`
+3. `GET /v1/lifelog/timeline`
+4. `GET /v1/lifelog/safety`
+5. `GET /v1/lifelog/safety/stats`
+
+Runtime observability endpoints:
+
+1. `GET /v1/runtime/status`
+2. `GET /v1/runtime/observability`
+3. `GET /v1/runtime/observability/history`
+
+`/v1/runtime/observability/history` persists to `hardware.observabilitySqlitePath` by default.  
+When that store is unavailable, it falls back to lifelog SQLite (if enabled), then in-memory samples.
+
+Lifelog image assets are persisted under `lifelog.imageAssetDir`, with file-count retention via `lifelog.imageAssetMaxFiles`.
+
+Digital task endpoints:
+
+1. `POST /v1/digital-task/execute`
+2. `GET /v1/digital-task/{task_id}`
+3. `POST /v1/digital-task/{task_id}/cancel`
+4. `GET /v1/digital-task`
+5. `GET /v1/digital-task/stats`
+
+Digital task hardware push (optional):
+
+1. Provide `device_id` in execute payload
+2. Set `notify=true` to push `task_update` status commands
+3. Set `speak=true` to also push TTS status播报
+4. Set `interrupt_previous=true` to cancel older unfinished task on same device
+5. Offline pushes are queued and replayed after next device `hello`
+
+Voice intent routing:
+
+1. Voice commands like `帮我挂号 / 帮我预约` are auto-routed to digital task flow
+2. Runtime startup auto-recovers unfinished `pending/running` digital tasks
+
+Runtime startup behavior:
+
+1. STT provider auto-fallback order: `groq` -> `openai` -> `custom(openai-compatible)`
+2. `--strict-startup` can enforce fail-fast on degraded dependencies
+3. `hardware.ttsMode=server_audio` is supported (OpenAI/custom TTS preferred; local tone fallback)
+4. Control API request body size is limited by `hardware.controlMaxBodyBytes` (default 12MB)
+5. `GET /v1/runtime/status` includes `lifelog.vector_index.backend_mode` for chroma/memory visibility
+6. Lifelog ingest backpressure is configurable via `lifelog.ingestQueueMaxSize` / `lifelog.ingestWorkers` / `lifelog.ingestOverflowPolicy`
+7. `GET /v1/runtime/observability` includes ingest queue metrics (`ingest_queue_depth/utilization/rejected_total`)
+
+Safety policy (P4):
+
+1. Outbound `agent/vision/task_update` text is guarded before TTS
+2. Low-confidence content is downgraded to conservative wording
+3. Tool-sent `message` content is also filtered by the same policy
+4. Audit events are written to lifelog as `event_type=safety_policy` with `policy_version/rule_ids/evidence`
+
+Detailed request/response examples:
+
+- `HARDWARE_LIFELOG_API.md`
+- `HARDWARE_DIGITAL_TASK_API.md`
+- `HARDWARE_OBSERVABILITY.md`
+
+Quick smoke test:
+
+```bash
+bash scripts/lifelog_api_smoke.sh
+bash scripts/digital_task_smoke.sh
+bash scripts/p4_safety_e2e_smoke.sh
+bash scripts/runtime_observability_check.sh
+# staging/prod threshold profiles:
+OBS_PROFILE=staging bash scripts/runtime_observability_check.sh
+OBS_PROFILE=prod bash scripts/runtime_observability_check.sh
+```
+
+CI smoke wrapper:
+
+```bash
+bash scripts/run_control_api_smoke_ci.sh
+```
+
 ## 💬 Chat Apps
 
 Talk to your nanobot through Telegram, Discord, WhatsApp, Feishu, Mochat, DingTalk, Slack, Email, or QQ — anytime, anywhere.

@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Ruff
+        run: python -m ruff check .
+
+      - name: Validate profile templates and config check gate
+        run: |
+          for p in CONFIG_PROFILE_DEV.json CONFIG_PROFILE_STAGING.json CONFIG_PROFILE_PROD.json; do
+            nanobot config profile apply --profile "${p}" --config /tmp/nanobot-ci-config.json --dry-run
+          done
+          nanobot config profile apply \
+            --profile CONFIG_PROFILE_DEV.json \
+            --config /tmp/nanobot-ci-config.json \
+            --no-backup
+          nanobot config check --config /tmp/nanobot-ci-config.json --strict
+
+      - name: Validate EC600 protocol template (draft)
+        run: |
+          python -m nanobot.hardware.validate_protocol \
+            --mapping EC600_PROTOCOL_MAPPING_TEMPLATE.md \
+            --stage draft
+
+      - name: Validate EC600 frozen mapping (freeze gate)
+        run: |
+          if [ -f "EC600_PROTOCOL_MAPPING_V1.md" ]; then
+            python -m nanobot.hardware.validate_protocol \
+              --mapping EC600_PROTOCOL_MAPPING_V1.md \
+              --stage freeze
+          elif grep -q "当前状态：\`Frozen\`" EC600_PROTOCOL_MAPPING_TEMPLATE.md; then
+            echo "Template is Frozen but EC600_PROTOCOL_MAPPING_V1.md is missing."
+            exit 1
+          elif grep -q "状态：\`Deferred\`" HARDWARE_JOINT_DEBUG_DEFERRED.md; then
+            echo "Freeze gate deferred by HARDWARE_JOINT_DEBUG_DEFERRED.md"
+          else
+            echo "EC600 freeze gate requires EC600_PROTOCOL_MAPPING_V1.md or an explicit Deferred marker."
+            exit 1
+          fi
+
+      - name: Pytest
+        run: python -m pytest -x
+
+  control-api-smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run control API smoke scripts
+        run: bash scripts/run_control_api_smoke_ci.sh

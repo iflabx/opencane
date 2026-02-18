@@ -1,7 +1,8 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
-from pydantic import BaseModel, Field, ConfigDict
+
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
 
 
@@ -163,6 +164,7 @@ class AgentDefaults(BaseModel):
     temperature: float = 0.7
     max_tool_iterations: int = 20
     memory_window: int = 50
+    max_subagents: int = 4
 
 
 class AgentsConfig(BaseModel):
@@ -232,6 +234,175 @@ class ToolsConfig(BaseModel):
     mcp_servers: dict[str, MCPServerConfig] = Field(default_factory=dict)
 
 
+class HardwareAuthConfig(BaseModel):
+    """Hardware runtime auth configuration."""
+
+    enabled: bool = False
+    token: str = ""
+    device_auth_enabled: bool = False
+    allow_unbound_devices: bool = False
+    require_activated_devices: bool = True
+    control_api_rate_limit_enabled: bool = True
+    control_api_rate_limit_rpm: int = 600
+    control_api_rate_limit_burst: int = 120
+    control_api_replay_protection_enabled: bool = False
+    control_api_replay_window_seconds: int = 300
+
+
+class HardwareMQTTConfig(BaseModel):
+    """MQTT transport configuration for EC600-like devices."""
+
+    host: str = "127.0.0.1"
+    port: int = 1883
+    username: str = ""
+    password: str = ""
+    client_id: str = "nanobot-hardware"
+    keepalive_seconds: int = 30
+    reconnect_min_seconds: int = 1
+    reconnect_max_seconds: int = 30
+    qos_control: int = 1
+    qos_audio: int = 0
+    up_control_topic: str = "device/+/up/control"
+    up_audio_topic: str = "device/+/up/audio"
+    down_control_topic_template: str = "device/{device_id}/down/control"
+    down_audio_topic_template: str = "device/{device_id}/down/audio"
+    replay_enabled: bool = True
+    control_replay_window: int = 50
+    offline_control_buffer: int = 50
+    heartbeat_topic: str = "nanobot/hardware/heartbeat"
+    heartbeat_interval_seconds: int = 20
+    tls_enabled: bool = False
+
+
+class ControlPlaneConfig(BaseModel):
+    """Control-plane remote config client settings."""
+
+    enabled: bool = False
+    base_url: str = ""
+    api_token: str = ""
+    runtime_config_path: str = "/v1/control/runtime_config"
+    device_policy_path: str = "/v1/control/device_policy"
+    timeout_seconds: float = 3.0
+    cache_ttl_seconds: int = 30
+
+
+class HardwareAudioConfig(BaseModel):
+    """Audio pipeline tuning for realtime speech capture."""
+
+    enable_vad: bool = True
+    prebuffer_chunks: int = 3
+    jitter_window: int = 8
+    vad_silence_chunks: int = 6
+
+
+class HardwareConfig(BaseModel):
+    """Hardware runtime server configuration."""
+
+    enabled: bool = False
+    adapter: str = "websocket"  # websocket | mock | ec600
+    tts_mode: str = "device_text"  # device_text | server_audio
+    tts_audio_chunk_bytes: int = 1600
+    network_profile: str = "cellular"  # cellular | default
+    apply_profile_defaults: bool = True
+    strict_startup: bool = False
+    host: str = "0.0.0.0"
+    port: int = 18791
+    control_host: str = "127.0.0.1"
+    control_port: int = 18792
+    control_max_body_bytes: int = 12 * 1024 * 1024
+    heartbeat_seconds: int = 20
+    observability_sqlite_path: str = "~/.nanobot/data/hardware/observability.db"
+    observability_max_samples: int = 4000
+    packet_magic: int = 161  # 0xA1
+    audio: HardwareAudioConfig = Field(default_factory=HardwareAudioConfig)
+    auth: HardwareAuthConfig = Field(default_factory=HardwareAuthConfig)
+    mqtt: HardwareMQTTConfig = Field(default_factory=HardwareMQTTConfig)
+    control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig)
+
+    def apply_network_profile(self) -> None:
+        """Apply non-final tuning defaults for known network profiles."""
+        if not self.apply_profile_defaults:
+            return
+        profile = (self.network_profile or "default").strip().lower()
+        if profile != "cellular":
+            return
+        self.heartbeat_seconds = max(self.heartbeat_seconds, 30)
+        self.mqtt.keepalive_seconds = max(self.mqtt.keepalive_seconds, 45)
+        self.mqtt.reconnect_min_seconds = max(self.mqtt.reconnect_min_seconds, 2)
+        self.mqtt.reconnect_max_seconds = max(self.mqtt.reconnect_max_seconds, 60)
+        self.mqtt.heartbeat_interval_seconds = max(self.mqtt.heartbeat_interval_seconds, 30)
+
+
+class VisionConfig(BaseModel):
+    """Vision endpoint and VLM runtime configuration."""
+
+    enabled: bool = True
+    model: str = ""
+    max_image_bytes: int = 2 * 1024 * 1024
+    default_prompt: str = "Describe the scene with key obstacles and safety hints."
+
+
+class LifelogConfig(BaseModel):
+    """Lifelog storage and retrieval configuration."""
+
+    enabled: bool = True
+    sqlite_path: str = "~/.nanobot/data/lifelog/lifelog.db"
+    chroma_persist_dir: str = "~/.nanobot/data/lifelog/chroma"
+    vector_backend: str = "chroma"  # chroma | qdrant
+    qdrant_url: str = ""
+    qdrant_api_key: str = ""
+    qdrant_collection: str = "lifelog_semantic"
+    qdrant_timeout_seconds: float = 3.0
+    image_asset_dir: str = "~/.nanobot/data/lifelog/images"
+    image_asset_max_files: int = 5000
+    ingest_queue_max_size: int = 64
+    ingest_workers: int = 2
+    ingest_overflow_policy: str = "reject"  # reject | wait | drop_oldest
+    ingest_enqueue_timeout_ms: int = 500
+    default_top_k: int = 5
+    max_timeline_items: int = 200
+    dedup_max_distance: int = 3
+
+
+class DigitalTaskConfig(BaseModel):
+    """Digital task execution configuration."""
+
+    enabled: bool = True
+    sqlite_path: str = "~/.nanobot/data/digital_task/tasks.db"
+    default_timeout_seconds: int = 120
+    max_concurrent_tasks: int = 2
+    status_retry_count: int = 2
+    status_retry_backoff_ms: int = 300
+
+
+class SafetyConfig(BaseModel):
+    """Safety policy configuration for runtime outputs."""
+
+    enabled: bool = True
+    low_confidence_threshold: float = 0.55
+    max_output_chars: int = 320
+    prepend_caution_for_risk: bool = True
+    semantic_guard_enabled: bool = True
+    directional_confidence_threshold: float = 0.85
+
+
+class InteractionConfig(BaseModel):
+    """Interaction policy for emotion/proactive/silent runtime behavior."""
+
+    enabled: bool = True
+    emotion_enabled: bool = True
+    proactive_enabled: bool = True
+    silent_enabled: bool = True
+    low_confidence_threshold: float = 0.45
+    high_risk_levels: list[str] = Field(default_factory=lambda: ["P0", "P1"])
+    proactive_sources: list[str] = Field(default_factory=lambda: ["vision_reply"])
+    silent_sources: list[str] = Field(default_factory=lambda: ["task_update"])
+    quiet_hours_enabled: bool = False
+    quiet_hours_start_hour: int = 23
+    quiet_hours_end_hour: int = 7
+    suppress_low_priority_in_quiet_hours: bool = True
+
+
 class Config(BaseSettings):
     """Root configuration for nanobot."""
     agents: AgentsConfig = Field(default_factory=AgentsConfig)
@@ -239,12 +410,18 @@ class Config(BaseSettings):
     providers: ProvidersConfig = Field(default_factory=ProvidersConfig)
     gateway: GatewayConfig = Field(default_factory=GatewayConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
-    
+    hardware: HardwareConfig = Field(default_factory=HardwareConfig)
+    vision: VisionConfig = Field(default_factory=VisionConfig)
+    lifelog: LifelogConfig = Field(default_factory=LifelogConfig)
+    digital_task: DigitalTaskConfig = Field(default_factory=DigitalTaskConfig)
+    safety: SafetyConfig = Field(default_factory=SafetyConfig)
+    interaction: InteractionConfig = Field(default_factory=InteractionConfig)
+
     @property
     def workspace_path(self) -> Path:
         """Get expanded workspace path."""
         return Path(self.agents.defaults.workspace).expanduser()
-    
+
     def _match_provider(self, model: str | None = None) -> tuple["ProviderConfig | None", str | None]:
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from nanobot.providers.registry import PROVIDERS
@@ -277,7 +454,7 @@ class Config(BaseSettings):
         """Get API key for the given model. Falls back to first available key."""
         p = self.get_provider(model)
         return p.api_key if p else None
-    
+
     def get_api_base(self, model: str | None = None) -> str | None:
         """Get API base URL for the given model. Applies default URLs for known gateways."""
         from nanobot.providers.registry import find_by_name
@@ -292,7 +469,7 @@ class Config(BaseSettings):
             if spec and spec.is_gateway and spec.default_api_base:
                 return spec.default_api_base
         return None
-    
+
     model_config = ConfigDict(
         env_prefix="NANOBOT_",
         env_nested_delimiter="__"
