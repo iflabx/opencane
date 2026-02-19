@@ -29,4 +29,4 @@
 
 ## 历史文档归档
 
-- 旧版 nanobot 文档: `archive/nanobot-legacy/`
+- 旧版 nanobot 文档: `../local-docs/nanobot-legacy/`

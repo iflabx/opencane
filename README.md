@@ -59,6 +59,6 @@ nanobot hardware serve --adapter mock --logs
 
 旧版 nanobot 文档已归档到：
 
-- `docs/archive/nanobot-legacy/`
+- `local-docs/nanobot-legacy/`
 
-归档说明见：`docs/archive/nanobot-legacy/README.md`
+归档说明见：`local-docs/nanobot-legacy/README.md`

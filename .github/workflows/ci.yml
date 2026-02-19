@@ -41,7 +41,7 @@ jobs:
       - name: Validate EC600 protocol template (draft)
         run: |
           python -m nanobot.hardware.validate_protocol \
-            --mapping docs/archive/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md \
+            --mapping local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md \
             --stage draft
 
       - name: Validate EC600 frozen mapping (freeze gate)
@@ -50,10 +50,10 @@ jobs:
             python -m nanobot.hardware.validate_protocol \
               --mapping EC600_PROTOCOL_MAPPING_V1.md \
               --stage freeze
-          elif grep -q "当前状态：\`Frozen\`" docs/archive/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md; then
+          elif grep -q "当前状态：\`Frozen\`" local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md; then
             echo "Template is Frozen but EC600_PROTOCOL_MAPPING_V1.md is missing."
             exit 1
-          elif grep -q "状态：\`Deferred\`" docs/archive/nanobot-legacy/HARDWARE_JOINT_DEBUG_DEFERRED.md; then
+          elif grep -q "状态：\`Deferred\`" local-docs/nanobot-legacy/HARDWARE_JOINT_DEBUG_DEFERRED.md; then
             echo "Freeze gate deferred by HARDWARE_JOINT_DEBUG_DEFERRED.md"
           else
             echo "EC600 freeze gate requires EC600_PROTOCOL_MAPPING_V1.md or an explicit Deferred marker."
