@@ -19,3 +19,4 @@ poetry.lock
 .pytest_cache/
 botpy.log
 tests/__pycache__/
+LOCAL_GIT_TIMELINE.md
