@@ -1,6 +1,10 @@
-# nanobot Skills
+# OpenCane Skills
 
-This directory contains built-in skills that extend nanobot's capabilities.
+This directory contains built-in skills that extend OpenCane's capabilities.
+
+Compatibility note:
+- Package path and CLI command remain `nanobot` for now.
+- Skill metadata may keep legacy `nanobot` keys to preserve runtime compatibility.
 
 ## Skill Format
 
