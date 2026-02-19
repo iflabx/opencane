@@ -1,7 +1,7 @@
 """Utility functions for nanobot."""
 
-from pathlib import Path
 from datetime import datetime
+from pathlib import Path
 
 
 def ensure_dir(path: Path) -> Path:
@@ -18,10 +18,10 @@ def get_data_path() -> Path:
 def get_workspace_path(workspace: str | None = None) -> Path:
     """
     Get the workspace path.
-    
+
     Args:
         workspace: Optional workspace path. Defaults to ~/.nanobot/workspace.
-    
+
     Returns:
         Expanded and ensured workspace path.
     """
@@ -37,21 +37,10 @@ def get_sessions_path() -> Path:
     return ensure_dir(get_data_path() / "sessions")
 
 
-def get_memory_path(workspace: Path | None = None) -> Path:
-    """Get the memory directory within the workspace."""
-    ws = workspace or get_workspace_path()
-    return ensure_dir(ws / "memory")
-
-
 def get_skills_path(workspace: Path | None = None) -> Path:
     """Get the skills directory within the workspace."""
     ws = workspace or get_workspace_path()
     return ensure_dir(ws / "skills")
-
-
-def today_date() -> str:
-    """Get today's date in YYYY-MM-DD format."""
-    return datetime.now().strftime("%Y-%m-%d")
 
 
 def timestamp() -> str:
@@ -78,10 +67,10 @@ def safe_filename(name: str) -> str:
 def parse_session_key(key: str) -> tuple[str, str]:
     """
     Parse a session key into channel and chat_id.
-    
+
     Args:
         key: Session key in format "channel:chat_id"
-    
+
     Returns:
         Tuple of (channel, chat_id)
     """

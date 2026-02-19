@@ -1,0 +1,116 @@
+{
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-5",
+      "temperature": 0.5,
+      "maxToolIterations": 20,
+      "memoryWindow": 100,
+      "maxSubagents": 4
+    }
+  },
+  "providers": {
+    "openrouter": {
+      "apiKey": "REPLACE_WITH_PROD_OPENROUTER_KEY"
+    }
+  },
+  "hardware": {
+    "enabled": true,
+    "adapter": "ec600",
+    "host": "0.0.0.0",
+    "port": 18791,
+    "controlHost": "0.0.0.0",
+    "controlPort": 18792,
+    "controlMaxBodyBytes": 12582912,
+    "networkProfile": "cellular",
+    "applyProfileDefaults": true,
+    "strictStartup": true,
+    "heartbeatSeconds": 30,
+    "ttsAudioChunkBytes": 1600,
+    "audio": {
+      "enableVad": true,
+      "prebufferChunks": 4,
+      "jitterWindow": 12,
+      "vadSilenceChunks": 8
+    },
+    "observabilitySqlitePath": "~/.nanobot/data/hardware/observability-prod.db",
+    "observabilityMaxSamples": 12000,
+    "auth": {
+      "enabled": true,
+      "token": "REPLACE_WITH_PROD_CONTROL_API_TOKEN"
+    },
+    "mqtt": {
+      "host": "REPLACE_WITH_PROD_MQTT_HOST",
+      "port": 8883,
+      "username": "REPLACE_WITH_PROD_MQTT_USERNAME",
+      "password": "REPLACE_WITH_PROD_MQTT_PASSWORD",
+      "clientId": "nanobot-hardware-prod",
+      "keepaliveSeconds": 60,
+      "reconnectMinSeconds": 3,
+      "reconnectMaxSeconds": 90,
+      "qosControl": 1,
+      "qosAudio": 0,
+      "upControlTopic": "device/+/up/control",
+      "upAudioTopic": "device/+/up/audio",
+      "downControlTopicTemplate": "device/{device_id}/down/control",
+      "downAudioTopicTemplate": "device/{device_id}/down/audio",
+      "replayEnabled": true,
+      "controlReplayWindow": 100,
+      "offlineControlBuffer": 200,
+      "heartbeatTopic": "nanobot/hardware/heartbeat",
+      "heartbeatIntervalSeconds": 30,
+      "tlsEnabled": true
+    }
+  },
+  "vision": {
+    "enabled": true
+  },
+  "lifelog": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/lifelog/lifelog-prod.db",
+    "chromaPersistDir": "~/.nanobot/data/lifelog/chroma-prod",
+    "imageAssetDir": "~/.nanobot/data/lifelog/images-prod",
+    "imageAssetMaxFiles": 50000,
+    "ingestQueueMaxSize": 256,
+    "ingestWorkers": 4,
+    "ingestOverflowPolicy": "wait",
+    "ingestEnqueueTimeoutMs": 1500,
+    "maxTimelineItems": 500
+  },
+  "digitalTask": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/digital_task/tasks-prod.db",
+    "defaultTimeoutSeconds": 180,
+    "maxConcurrentTasks": 4,
+    "statusRetryCount": 5,
+    "statusRetryBackoffMs": 800
+  },
+  "safety": {
+    "enabled": true,
+    "lowConfidenceThreshold": 0.6,
+    "maxOutputChars": 280,
+    "prependCautionForRisk": true,
+    "semanticGuardEnabled": true,
+    "directionalConfidenceThreshold": 0.9
+  },
+  "interaction": {
+    "enabled": true,
+    "emotionEnabled": true,
+    "proactiveEnabled": true,
+    "silentEnabled": true,
+    "lowConfidenceThreshold": 0.45,
+    "highRiskLevels": [
+      "P0",
+      "P1"
+    ],
+    "proactiveSources": [
+      "vision_reply"
+    ],
+    "silentSources": [
+      "task_update"
+    ],
+    "quietHoursEnabled": true,
+    "quietHoursStartHour": 23,
+    "quietHoursEndHour": 7,
+    "suppressLowPriorityInQuietHours": true
+  }
+}

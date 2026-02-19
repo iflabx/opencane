@@ -1,0 +1,95 @@
+{
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-5",
+      "temperature": 0.7,
+      "maxToolIterations": 20,
+      "memoryWindow": 60,
+      "maxSubagents": 4
+    }
+  },
+  "providers": {
+    "openrouter": {
+      "apiKey": "REPLACE_WITH_DEV_OPENROUTER_KEY"
+    }
+  },
+  "hardware": {
+    "enabled": true,
+    "adapter": "mock",
+    "host": "127.0.0.1",
+    "port": 18791,
+    "controlHost": "127.0.0.1",
+    "controlPort": 18792,
+    "controlMaxBodyBytes": 12582912,
+    "networkProfile": "default",
+    "applyProfileDefaults": false,
+    "strictStartup": false,
+    "heartbeatSeconds": 20,
+    "ttsAudioChunkBytes": 1600,
+    "audio": {
+      "enableVad": true,
+      "prebufferChunks": 3,
+      "jitterWindow": 8,
+      "vadSilenceChunks": 6
+    },
+    "observabilitySqlitePath": "~/.nanobot/data/hardware/observability-dev.db",
+    "observabilityMaxSamples": 4000,
+    "auth": {
+      "enabled": false,
+      "token": ""
+    }
+  },
+  "vision": {
+    "enabled": true,
+    "defaultPrompt": "Describe the scene with key obstacles and safety hints."
+  },
+  "lifelog": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/lifelog/lifelog-dev.db",
+    "chromaPersistDir": "~/.nanobot/data/lifelog/chroma-dev",
+    "imageAssetDir": "~/.nanobot/data/lifelog/images-dev",
+    "imageAssetMaxFiles": 3000,
+    "ingestQueueMaxSize": 64,
+    "ingestWorkers": 2,
+    "ingestOverflowPolicy": "reject",
+    "ingestEnqueueTimeoutMs": 500,
+    "maxTimelineItems": 200
+  },
+  "digitalTask": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/digital_task/tasks-dev.db",
+    "defaultTimeoutSeconds": 120,
+    "maxConcurrentTasks": 1,
+    "statusRetryCount": 2,
+    "statusRetryBackoffMs": 300
+  },
+  "safety": {
+    "enabled": true,
+    "lowConfidenceThreshold": 0.5,
+    "maxOutputChars": 320,
+    "prependCautionForRisk": true,
+    "semanticGuardEnabled": true,
+    "directionalConfidenceThreshold": 0.8
+  },
+  "interaction": {
+    "enabled": true,
+    "emotionEnabled": true,
+    "proactiveEnabled": true,
+    "silentEnabled": true,
+    "lowConfidenceThreshold": 0.45,
+    "highRiskLevels": [
+      "P0",
+      "P1"
+    ],
+    "proactiveSources": [
+      "vision_reply"
+    ],
+    "silentSources": [
+      "task_update"
+    ],
+    "quietHoursEnabled": false,
+    "quietHoursStartHour": 23,
+    "quietHoursEndHour": 7,
+    "suppressLowPriorityInQuietHours": true
+  }
+}

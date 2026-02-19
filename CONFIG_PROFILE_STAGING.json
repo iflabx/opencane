@@ -1,0 +1,116 @@
+{
+  "agents": {
+    "defaults": {
+      "model": "anthropic/claude-opus-4-5",
+      "temperature": 0.6,
+      "maxToolIterations": 20,
+      "memoryWindow": 80,
+      "maxSubagents": 4
+    }
+  },
+  "providers": {
+    "openrouter": {
+      "apiKey": "REPLACE_WITH_STAGING_OPENROUTER_KEY"
+    }
+  },
+  "hardware": {
+    "enabled": true,
+    "adapter": "ec600",
+    "host": "0.0.0.0",
+    "port": 18791,
+    "controlHost": "0.0.0.0",
+    "controlPort": 18792,
+    "controlMaxBodyBytes": 12582912,
+    "networkProfile": "cellular",
+    "applyProfileDefaults": true,
+    "strictStartup": true,
+    "heartbeatSeconds": 30,
+    "ttsAudioChunkBytes": 1600,
+    "audio": {
+      "enableVad": true,
+      "prebufferChunks": 4,
+      "jitterWindow": 12,
+      "vadSilenceChunks": 8
+    },
+    "observabilitySqlitePath": "~/.nanobot/data/hardware/observability-staging.db",
+    "observabilityMaxSamples": 8000,
+    "auth": {
+      "enabled": true,
+      "token": "REPLACE_WITH_STAGING_CONTROL_API_TOKEN"
+    },
+    "mqtt": {
+      "host": "REPLACE_WITH_STAGING_MQTT_HOST",
+      "port": 1883,
+      "username": "REPLACE_WITH_STAGING_MQTT_USERNAME",
+      "password": "REPLACE_WITH_STAGING_MQTT_PASSWORD",
+      "clientId": "nanobot-hardware-staging",
+      "keepaliveSeconds": 45,
+      "reconnectMinSeconds": 2,
+      "reconnectMaxSeconds": 60,
+      "qosControl": 1,
+      "qosAudio": 0,
+      "upControlTopic": "device/+/up/control",
+      "upAudioTopic": "device/+/up/audio",
+      "downControlTopicTemplate": "device/{device_id}/down/control",
+      "downAudioTopicTemplate": "device/{device_id}/down/audio",
+      "replayEnabled": true,
+      "controlReplayWindow": 50,
+      "offlineControlBuffer": 100,
+      "heartbeatTopic": "nanobot/hardware/heartbeat",
+      "heartbeatIntervalSeconds": 30,
+      "tlsEnabled": false
+    }
+  },
+  "vision": {
+    "enabled": true
+  },
+  "lifelog": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/lifelog/lifelog-staging.db",
+    "chromaPersistDir": "~/.nanobot/data/lifelog/chroma-staging",
+    "imageAssetDir": "~/.nanobot/data/lifelog/images-staging",
+    "imageAssetMaxFiles": 10000,
+    "ingestQueueMaxSize": 128,
+    "ingestWorkers": 3,
+    "ingestOverflowPolicy": "wait",
+    "ingestEnqueueTimeoutMs": 1200,
+    "maxTimelineItems": 300
+  },
+  "digitalTask": {
+    "enabled": true,
+    "sqlitePath": "~/.nanobot/data/digital_task/tasks-staging.db",
+    "defaultTimeoutSeconds": 150,
+    "maxConcurrentTasks": 2,
+    "statusRetryCount": 3,
+    "statusRetryBackoffMs": 500
+  },
+  "safety": {
+    "enabled": true,
+    "lowConfidenceThreshold": 0.55,
+    "maxOutputChars": 300,
+    "prependCautionForRisk": true,
+    "semanticGuardEnabled": true,
+    "directionalConfidenceThreshold": 0.85
+  },
+  "interaction": {
+    "enabled": true,
+    "emotionEnabled": true,
+    "proactiveEnabled": true,
+    "silentEnabled": true,
+    "lowConfidenceThreshold": 0.45,
+    "highRiskLevels": [
+      "P0",
+      "P1"
+    ],
+    "proactiveSources": [
+      "vision_reply"
+    ],
+    "silentSources": [
+      "task_update"
+    ],
+    "quietHoursEnabled": true,
+    "quietHoursStartHour": 23,
+    "quietHoursEndHour": 7,
+    "suppressLowPriorityInQuietHours": true
+  }
+}

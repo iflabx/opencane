@@ -1,0 +1,62 @@
+[
+  {
+    "delay_ms": 50,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-voice-hello-1",
+      "device_id": "replay-dev-voice",
+      "session_id": "replay-sess-voice",
+      "seq": 1,
+      "ts": 1771400000001,
+      "type": "hello",
+      "payload": {
+        "capabilities": {
+          "network": "cellular",
+          "camera": true
+        }
+      }
+    }
+  },
+  {
+    "delay_ms": 20,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-voice-ls-2",
+      "device_id": "replay-dev-voice",
+      "session_id": "replay-sess-voice",
+      "seq": 2,
+      "ts": 1771400000020,
+      "type": "listen_start",
+      "payload": {}
+    }
+  },
+  {
+    "delay_ms": 20,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-voice-audio-3",
+      "device_id": "replay-dev-voice",
+      "session_id": "replay-sess-voice",
+      "seq": 3,
+      "ts": 1771400000040,
+      "type": "audio_chunk",
+      "payload": {
+        "text": "前方有障碍吗",
+        "chunk_index": 1
+      }
+    }
+  },
+  {
+    "delay_ms": 0,
+    "event": {
+      "version": "0.1",
+      "msg_id": "replay-voice-le-4",
+      "device_id": "replay-dev-voice",
+      "session_id": "replay-sess-voice",
+      "seq": 4,
+      "ts": 1771400000060,
+      "type": "listen_stop",
+      "payload": {}
+    }
+  }
+]
