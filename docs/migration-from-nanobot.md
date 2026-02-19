@@ -2,7 +2,7 @@
 
 ## 本次调整内容
 
-1. 根目录原有 nanobot 文档全部归档到 `docs/archive/nanobot-legacy/`
+1. 根目录原有 nanobot 文档全部归档到 `local-docs/nanobot-legacy/`
 2. 重建 OpenCane 文档体系，统一入口为根目录 `README.md` 和 `docs/README.md`
 3. 文档结构从“历史演进 + 分散专题”调整为“产品化结构 + API/运维可执行手册”
 

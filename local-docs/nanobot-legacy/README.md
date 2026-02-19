@@ -15,4 +15,4 @@
 
 ## 快速迁移入口
 
-- 迁移说明: `../../migration-from-nanobot.md`
+- 迁移说明: `../../docs/migration-from-nanobot.md`
