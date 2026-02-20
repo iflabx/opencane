@@ -28,11 +28,17 @@ nanobot config check --strict
 - `hardware.controlHost/controlPort`
 - `hardware.mqtt.*`（EC600）
 - `hardware.strictStartup`
+- `hardware.toolResult.enabled`
+- `hardware.telemetry.normalizeEnabled`
+- `hardware.telemetry.persistSamplesEnabled`
 
 ### 2.3 Lifelog / Digital Task
 
 - `lifelog.sqlitePath`
 - `lifelog.chromaPersistDir`
+- `lifelog.vectorBackend` / `lifelog.qdrant*`
+- `lifelog.embeddingEnabled` / `lifelog.embeddingModel`
+- `lifelog.retention*`
 - `digitalTask.sqlitePath`
 - `digitalTask.maxConcurrentTasks`
 

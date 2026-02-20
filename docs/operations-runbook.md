@@ -56,3 +56,35 @@ nanobot hardware serve --adapter ec600 --logs
 1. 先在 staging 验证
 2. 观察 24h 核心指标
 3. 再发布到 prod
+
+## 5. 数据治理基线
+
+### 5.1 运行中清理 retention
+
+手动触发：
+
+```bash
+curl -X POST http://127.0.0.1:18792/v1/lifelog/retention/cleanup \
+  -H 'Content-Type: application/json' \
+  -d '{"runtime_events_days":30,"thought_traces_days":30,"device_sessions_days":30,"device_operations_days":30,"telemetry_samples_days":7}'
+```
+
+### 5.2 本地备份与恢复
+
+备份：
+
+```bash
+python scripts/lifelog_backup_restore.py backup \
+  --sqlite ~/.nanobot/data/lifelog/lifelog.db \
+  --images ~/.nanobot/data/lifelog/images \
+  --out ./lifelog-backup-$(date +%Y%m%d).tar.gz
+```
+
+恢复：
+
+```bash
+python scripts/lifelog_backup_restore.py restore \
+  --archive ./lifelog-backup-20260220.tar.gz \
+  --dest ~/.nanobot/restore/lifelog \
+  --overwrite
+```
