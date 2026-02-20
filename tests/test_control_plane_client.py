@@ -135,3 +135,32 @@ async def test_control_plane_device_policy_cache_and_failure() -> None:
     assert len(calls) == 2
     assert calls[0][0].endswith("/v1/control/device_policy")
     assert calls[0][1]["device_id"] == "dev-1"
+
+
+@pytest.mark.asyncio
+async def test_control_plane_runtime_fetch_supports_wrapped_payload_with_meta() -> None:
+    async def _fetch(
+        url: str,
+        params: dict[str, Any],
+        headers: dict[str, str],
+        timeout: float,
+    ) -> dict[str, Any]:
+        del url, params, headers, timeout
+        return {
+            "data": {"tts_mode": "server_audio", "no_heartbeat_timeout_s": 90},
+            "meta": {"config_version": "3", "rollout_id": "rollout-a"},
+        }
+
+    client = ControlPlaneClient(
+        enabled=True,
+        base_url="https://cp.example.com",
+        cache_ttl_seconds=30,
+        fetcher=_fetch,
+    )
+    result = await client.fetch_runtime_config()
+
+    assert result["success"] is True
+    assert result["source"] == "remote"
+    assert result["data"]["tts_mode"] == "server_audio"
+    assert result["meta"]["config_version"] == "3"
+    assert result["meta"]["rollout_id"] == "rollout-a"

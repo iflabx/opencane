@@ -32,6 +32,8 @@ class FakeLifelogService:
         self.runtime_events: list[dict] = []
         self.image_requests: list[dict] = []
         self.auth_calls: list[dict] = []
+        self.device_operation_mark_calls: list[dict] = []
+        self.telemetry_sample_calls: list[dict] = []
 
     def record_runtime_event(self, **kwargs):  # type: ignore[no-untyped-def]
         self.runtime_events.append(kwargs)
@@ -70,6 +72,16 @@ class FakeLifelogService:
                 "binding": {"status": "activated", "user_id": "user-1"},
             }
         return {"success": False, "reason": "invalid_device_token", "binding": None}
+
+    async def device_operation_mark(self, payload):  # type: ignore[no-untyped-def]
+        body = dict(payload)
+        self.device_operation_mark_calls.append(body)
+        return {"success": True, "operation": body}
+
+    def append_telemetry_sample(self, payload):  # type: ignore[no-untyped-def]
+        body = dict(payload)
+        self.telemetry_sample_calls.append(body)
+        return {"success": True, "sample_id": len(self.telemetry_sample_calls)}
 
 
 class FakeDigitalTaskService:
@@ -800,6 +812,130 @@ async def test_runtime_voice_turn_supports_deny_only_device_policy() -> None:
         kwargs = dict(agent.calls[-1]["kwargs"])
         assert kwargs.get("allowed_tool_names") is None
         assert kwargs.get("blocked_tool_names") == {"exec", "write_file"}
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_tool_result_updates_device_operation_when_enabled() -> None:
+    adapter = MockAdapter()
+    lifelog = FakeLifelogService()
+    runtime = DeviceRuntimeCore(
+        adapter=adapter,
+        agent_loop=FakeAgentLoop(),
+        lifelog_service=lifelog,
+        tool_result_enabled=True,
+        tool_result_mark_device_operation_enabled=True,
+    )
+    await runtime.start()
+    try:
+        device_id = "dev-tool-result"
+        session_id = "sess-tool-result"
+        await adapter.inject_event(
+            make_event(DeviceEventType.HELLO, device_id=device_id, session_id=session_id, seq=1)
+        )
+        await adapter.inject_event(
+            make_event(
+                DeviceEventType.TOOL_RESULT,
+                device_id=device_id,
+                session_id=session_id,
+                seq=2,
+                payload={
+                    "operation_id": "op-1",
+                    "tool_name": "camera.scan",
+                    "success": True,
+                    "result": {"ok": True},
+                },
+            )
+        )
+        await asyncio.sleep(0.2)
+        cmds = adapter.pending_commands()
+        assert any(cmd.type == "ack" and int(cmd.payload.get("ack_seq", -1)) == 2 for cmd in cmds)
+        assert any(e.get("event_type") == "tool_result" for e in lifelog.runtime_events)
+        assert lifelog.device_operation_mark_calls
+        assert lifelog.device_operation_mark_calls[-1]["operation_id"] == "op-1"
+        assert lifelog.device_operation_mark_calls[-1]["status"] == "acked"
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_tool_result_is_acked_but_ignored_when_disabled() -> None:
+    adapter = MockAdapter()
+    lifelog = FakeLifelogService()
+    runtime = DeviceRuntimeCore(
+        adapter=adapter,
+        agent_loop=FakeAgentLoop(),
+        lifelog_service=lifelog,
+        tool_result_enabled=False,
+    )
+    await runtime.start()
+    try:
+        device_id = "dev-tool-result-off"
+        session_id = "sess-tool-result-off"
+        await adapter.inject_event(
+            make_event(DeviceEventType.HELLO, device_id=device_id, session_id=session_id, seq=1)
+        )
+        await adapter.inject_event(
+            make_event(
+                DeviceEventType.TOOL_RESULT,
+                device_id=device_id,
+                session_id=session_id,
+                seq=2,
+                payload={"operation_id": "op-off", "success": True},
+            )
+        )
+        await asyncio.sleep(0.2)
+        cmds = adapter.pending_commands()
+        assert any(cmd.type == "ack" and int(cmd.payload.get("ack_seq", -1)) == 2 for cmd in cmds)
+        assert any(e.get("event_type") == "tool_result_ignored" for e in lifelog.runtime_events)
+        assert not lifelog.device_operation_mark_calls
+    finally:
+        await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_runtime_telemetry_normalization_and_persistence_are_optional() -> None:
+    adapter = MockAdapter()
+    lifelog = FakeLifelogService()
+    runtime = DeviceRuntimeCore(
+        adapter=adapter,
+        agent_loop=FakeAgentLoop(),
+        lifelog_service=lifelog,
+        telemetry_normalize_enabled=True,
+        telemetry_persist_samples_enabled=True,
+    )
+    await runtime.start()
+    try:
+        device_id = "dev-telemetry-structured"
+        session_id = "sess-telemetry-structured"
+        await adapter.inject_event(
+            make_event(DeviceEventType.HELLO, device_id=device_id, session_id=session_id, seq=1)
+        )
+        await adapter.inject_event(
+            make_event(
+                DeviceEventType.TELEMETRY,
+                device_id=device_id,
+                session_id=session_id,
+                seq=2,
+                payload={
+                    "battery": 87,
+                    "rssi": -72,
+                    "lat": 31.2304,
+                    "lon": 121.4737,
+                    "imu": {"accel": {"x": 0.12, "y": -0.03, "z": 9.81}},
+                },
+            )
+        )
+        await asyncio.sleep(0.2)
+        status = runtime.get_device_status(device_id) or {}
+        metadata = status.get("metadata", {})
+        structured = metadata.get("telemetry_structured", {}) if isinstance(metadata, dict) else {}
+        assert structured.get("schema_version") == "opencane.telemetry.v1"
+        assert structured.get("battery", {}).get("percent") == 87.0
+        assert structured.get("imu", {}).get("accelerometer_mps2", {}).get("z") == 9.81
+        assert len(lifelog.telemetry_sample_calls) == 1
+        assert lifelog.telemetry_sample_calls[0]["schema_version"] == "opencane.telemetry.v1"
     finally:
         await runtime.stop()
 

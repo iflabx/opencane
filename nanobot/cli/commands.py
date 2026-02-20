@@ -4,10 +4,12 @@ import asyncio
 import contextlib
 import json
 import os
+import re
 import select
 import signal
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable
 
@@ -470,6 +472,142 @@ def _apply_control_plane_runtime_overrides(
     return source, warning
 
 
+def _extract_control_plane_metadata(cp_result: dict[str, object]) -> dict[str, object]:
+    cp_map = cp_result.get("data")
+    data = cp_map if isinstance(cp_map, dict) else {}
+    meta = cp_result.get("meta")
+    if not isinstance(meta, dict):
+        meta = cp_result.get("metadata")
+    meta_map = dict(meta) if isinstance(meta, dict) else {}
+    for key in (
+        "config_version",
+        "rollout_id",
+        "issued_at",
+        "issued_at_ms",
+        "expires_at",
+        "expires_at_ms",
+        "rollback",
+    ):
+        if key in cp_result and key not in meta_map:
+            meta_map[key] = cp_result.get(key)
+        if key in data and key not in meta_map:
+            meta_map[key] = data.get(key)
+
+    config_version = str(
+        meta_map.get("config_version")
+        or meta_map.get("version")
+        or ""
+    ).strip()
+    rollout_id = str(meta_map.get("rollout_id") or meta_map.get("rolloutId") or "").strip()
+    issued_at_ms = _parse_cp_timestamp_ms(meta_map.get("issued_at_ms"), assume_ms=True)
+    if issued_at_ms <= 0:
+        issued_at_ms = _parse_cp_timestamp_ms(meta_map.get("issued_at"), assume_ms=False)
+    expires_at_ms = _parse_cp_timestamp_ms(meta_map.get("expires_at_ms"), assume_ms=True)
+    if expires_at_ms <= 0:
+        expires_at_ms = _parse_cp_timestamp_ms(meta_map.get("expires_at"), assume_ms=False)
+    rollback = _to_bool_value(meta_map.get("rollback"), default=False)
+    return {
+        "config_version": config_version,
+        "rollout_id": rollout_id,
+        "issued_at_ms": int(issued_at_ms),
+        "expires_at_ms": int(expires_at_ms),
+        "rollback": bool(rollback),
+    }
+
+
+def _should_apply_control_plane_config(
+    current_meta: dict[str, object],
+    incoming_meta: dict[str, object],
+    *,
+    now_ms: int,
+) -> tuple[bool, str]:
+    rollback = bool(incoming_meta.get("rollback"))
+    expires_at_ms = _extract_int(incoming_meta.get("expires_at_ms"), default=0)
+    if expires_at_ms > 0 and now_ms > expires_at_ms:
+        return False, "expired_runtime_config"
+
+    current_version = str(current_meta.get("config_version") or "").strip()
+    incoming_version = str(incoming_meta.get("config_version") or "").strip()
+    if not rollback and current_version and incoming_version:
+        if _compare_version_token(incoming_version, current_version) < 0:
+            return False, f"non_regressive_version_rejected:{incoming_version}<{current_version}"
+
+    current_issued_ms = _extract_int(current_meta.get("issued_at_ms"), default=0)
+    incoming_issued_ms = _extract_int(incoming_meta.get("issued_at_ms"), default=0)
+    if not rollback and current_issued_ms > 0 and incoming_issued_ms > 0 and incoming_issued_ms < current_issued_ms:
+        return False, "stale_issued_at_rejected"
+
+    return True, ""
+
+
+def _parse_cp_timestamp_ms(value: object, *, assume_ms: bool) -> int:
+    if value is None:
+        return 0
+    try:
+        parsed = int(value)
+        if not assume_ms and 0 < parsed < 10_000_000_000:
+            parsed *= 1000
+        return max(0, parsed)
+    except (TypeError, ValueError):
+        pass
+    text = str(value or "").strip()
+    if not text:
+        return 0
+    if text.endswith("Z"):
+        text = f"{text[:-1]}+00:00"
+    try:
+        dt = datetime.fromisoformat(text)
+    except ValueError:
+        return 0
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return int(dt.timestamp() * 1000)
+
+
+def _compare_version_token(a: str, b: str) -> int:
+    av = _version_token_parts(a)
+    bv = _version_token_parts(b)
+    if av == bv:
+        return 0
+    return 1 if av > bv else -1
+
+
+def _version_token_parts(value: str) -> list[tuple[int, object]]:
+    text = str(value or "").strip().lower()
+    if not text:
+        return [(0, 0)]
+    parts = [p for p in re.split(r"[._-]+", text) if p]
+    output: list[tuple[int, object]] = []
+    for part in parts:
+        if part.isdigit():
+            output.append((0, int(part)))
+        else:
+            output.append((1, part))
+    if not output:
+        return [(0, 0)]
+    return output
+
+
+def _extract_int(value: object, *, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
+def _to_bool_value(value: object, *, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if value is None:
+        return default
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
+
+
 class _ControlPlaneRuntimeRefresher:
     """Applies runtime config from control-plane on startup and periodic refresh."""
 
@@ -481,19 +619,22 @@ class _ControlPlaneRuntimeRefresher:
         safety_policy: object,
         refresh_seconds: float,
         now_fn: Callable[[], float] | None = None,
+        now_ms_fn: Callable[[], int] | None = None,
     ) -> None:
         self.client = client
         self.runtime = runtime
         self.safety_policy = safety_policy
         self.refresh_seconds = max(1.0, float(refresh_seconds))
         self._now_fn = now_fn or time.monotonic
+        self._now_ms_fn = now_ms_fn or (lambda: int(time.time() * 1000))
         self.next_refresh_at = float(self._now_fn()) + self.refresh_seconds
         self.last_source = ""
         self.last_warning = ""
+        self.last_metadata: dict[str, object] = {}
 
     async def load_initial(self) -> tuple[str, str]:
         cp = await getattr(self.client, "fetch_runtime_config")()
-        source, warning = _apply_control_plane_runtime_overrides(self.runtime, self.safety_policy, cp)
+        source, warning, _ = self._apply_if_allowed(cp)
         self.last_source = source
         self.last_warning = warning
         self.next_refresh_at = float(self._now_fn()) + self.refresh_seconds
@@ -504,7 +645,7 @@ class _ControlPlaneRuntimeRefresher:
         if now < self.next_refresh_at:
             return None
         cp = await getattr(self.client, "fetch_runtime_config")(force_refresh=True)
-        source, warning = _apply_control_plane_runtime_overrides(self.runtime, self.safety_policy, cp)
+        source, warning, applied = self._apply_if_allowed(cp)
         changed_source = source != self.last_source
         changed_warning = warning != self.last_warning
         self.last_source = source
@@ -515,7 +656,34 @@ class _ControlPlaneRuntimeRefresher:
             "warning": warning,
             "source_changed": changed_source,
             "warning_changed": changed_warning,
+            "applied": applied,
+            "metadata": dict(self.last_metadata),
         }
+
+    def _apply_if_allowed(self, cp: dict[str, object]) -> tuple[str, str, bool]:
+        metadata = _extract_control_plane_metadata(cp)
+        allowed, reason = _should_apply_control_plane_config(
+            self.last_metadata,
+            metadata,
+            now_ms=int(self._now_ms_fn()),
+        )
+        source = str(cp.get("source") or "unknown")
+        warning = str(cp.get("warning") or "")
+        if not allowed:
+            final_warning = reason if not warning else f"{warning}; {reason}"
+            return source, final_warning, False
+
+        source, warning = _apply_control_plane_runtime_overrides(self.runtime, self.safety_policy, cp)
+        if metadata:
+            if (
+                str(metadata.get("config_version") or "").strip()
+                or _extract_int(metadata.get("issued_at_ms"), default=0) > 0
+                or _extract_int(metadata.get("expires_at_ms"), default=0) > 0
+                or bool(metadata.get("rollback"))
+                or str(metadata.get("rollout_id") or "").strip()
+            ):
+                self.last_metadata = dict(metadata)
+        return source, warning, True
 
 
 # ============================================================================
@@ -1409,6 +1577,10 @@ def hardware_serve(
         allow_unbound_devices=config.hardware.auth.allow_unbound_devices,
         require_activated_devices=config.hardware.auth.require_activated_devices,
         control_plane_client=control_plane_client,
+        tool_result_enabled=config.hardware.tool_result.enabled,
+        tool_result_mark_device_operation_enabled=config.hardware.tool_result.mark_device_operation_enabled,
+        telemetry_normalize_enabled=config.hardware.telemetry.normalize_enabled,
+        telemetry_persist_samples_enabled=config.hardware.telemetry.persist_samples_enabled,
     )
     if digital_task_service:
         async def _push_task_status(update: dict[str, object]) -> bool:

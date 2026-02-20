@@ -5,7 +5,7 @@ from __future__ import annotations
 import math
 import zlib
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
@@ -28,12 +28,17 @@ class QdrantLifelogIndex:
         api_key: str = "",
         timeout_seconds: float = 3.0,
         vector_size: int = 64,
+        embedding_enabled: bool = False,
+        embedding_fn: Callable[[str], list[float]] | None = None,
     ) -> None:
         self.collection_name = str(collection_name or "lifelog_semantic").strip()
         self.url = str(url or "").strip()
         self.api_key = str(api_key or "").strip()
         self.timeout_seconds = max(0.2, float(timeout_seconds))
         self.vector_size = max(8, int(vector_size))
+        self._embedding_fn = embedding_fn if callable(embedding_fn) else None
+        self._embedding_enabled = bool(embedding_enabled and self._embedding_fn is not None)
+        self._embedding_failed = False
 
         self._client: Any | None = None
         self._qm: Any | None = None
@@ -224,6 +229,18 @@ class QdrantLifelogIndex:
         return output
 
     def _embed(self, text: str) -> list[float]:
+        if self._embedding_enabled and self._embedding_fn is not None:
+            try:
+                vector = self._embedding_fn(str(text or ""))
+                if isinstance(vector, list) and vector:
+                    return self._project_vector(vector)
+                raise RuntimeError("empty vector")
+            except Exception as e:
+                self._embedding_enabled = False
+                if not self._embedding_failed:
+                    logger.warning(f"lifelog embedding provider failed, fallback to hash embedding: {e}")
+                    self._embedding_failed = True
+
         vec = [0.0] * self.vector_size
         normalized = str(text or "").strip().lower()
         tokens = normalized.split()
@@ -232,10 +249,26 @@ class QdrantLifelogIndex:
         for token in tokens:
             idx = int(zlib.adler32(token.encode("utf-8")) % self.vector_size)
             vec[idx] += 1.0
-        norm = math.sqrt(sum(x * x for x in vec))
+        return self._normalize_vector(vec)
+
+    def _project_vector(self, vector: list[float]) -> list[float]:
+        if not vector:
+            return [0.0] * self.vector_size
+        projected = [0.0] * self.vector_size
+        for idx, value in enumerate(vector):
+            try:
+                numeric = float(value)
+            except (TypeError, ValueError):
+                continue
+            slot = int(idx % self.vector_size)
+            projected[slot] += numeric
+        return self._normalize_vector(projected)
+
+    def _normalize_vector(self, vector: list[float]) -> list[float]:
+        norm = math.sqrt(sum(x * x for x in vector))
         if norm <= 0:
             return [0.0] * self.vector_size
-        return [x / norm for x in vec]
+        return [float(x) / norm for x in vector]
 
     def _warn_memory_mode_once(self) -> None:
         if self._memory_mode_warned:
@@ -246,3 +279,9 @@ class QdrantLifelogIndex:
     @property
     def backend_mode(self) -> str:
         return "qdrant" if self._is_qdrant and self._client is not None else "memory"
+
+    @property
+    def embedding_mode(self) -> str:
+        if self._embedding_enabled and self._embedding_fn is not None:
+            return "provider"
+        return "hash"

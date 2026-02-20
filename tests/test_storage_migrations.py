@@ -773,3 +773,70 @@ def test_sqlite_lifelog_store_thought_trace_crud(tmp_path) -> None:  # type: ign
         assert filtered[0]["trace_id"] == "trace-2"
     finally:
         store.close()
+
+
+def test_sqlite_lifelog_store_migrates_telemetry_samples_table(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    db_path = tmp_path / "lifelog-migrate-v7.db"
+    conn = sqlite3.connect(str(db_path))
+    cur = conn.cursor()
+    cur.execute("CREATE TABLE IF NOT EXISTS thought_traces(id INTEGER PRIMARY KEY AUTOINCREMENT)")
+    cur.execute("PRAGMA user_version = 6")
+    conn.commit()
+    conn.close()
+
+    store = SQLiteLifelogStore(db_path)
+    try:
+        conn2 = sqlite3.connect(str(db_path))
+        cur2 = conn2.cursor()
+        cur2.execute("PRAGMA table_info(telemetry_samples)")
+        columns = {str(row[1]) for row in cur2.fetchall()}
+        cur2.execute("PRAGMA user_version")
+        version = int(cur2.fetchone()[0])
+        conn2.close()
+        assert "device_id" in columns
+        assert "session_id" in columns
+        assert "schema_version" in columns
+        assert "sample_json" in columns
+        assert "raw_json" in columns
+        assert "trace_id" in columns
+        assert version >= SQLiteLifelogStore.SCHEMA_VERSION
+    finally:
+        store.close()
+
+
+def test_sqlite_lifelog_store_telemetry_samples_and_retention_cleanup(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    db_path = tmp_path / "lifelog-telemetry-samples.db"
+    store = SQLiteLifelogStore(db_path)
+    try:
+        store.add_telemetry_sample(
+            device_id="dev-1",
+            session_id="sess-1",
+            schema_version="opencane.telemetry.v1",
+            sample={"battery": {"percent": 80}},
+            raw={"battery": 80},
+            trace_id="trace-1",
+            ts=1000,
+        )
+        store.add_telemetry_sample(
+            device_id="dev-1",
+            session_id="sess-1",
+            schema_version="opencane.telemetry.v1",
+            sample={"battery": {"percent": 90}},
+            raw={"battery": 90},
+            trace_id="trace-2",
+            ts=2000,
+        )
+        items = store.list_telemetry_samples(device_id="dev-1", limit=10, offset=0)
+        assert len(items) == 2
+        assert items[0]["trace_id"] == "trace-2"
+        assert items[1]["trace_id"] == "trace-1"
+
+        deleted = store.cleanup_retention(
+            telemetry_samples_days=1,
+            now_ms=1_000_000_000,
+        )
+        assert int(deleted["telemetry_samples"]) >= 2
+        remained = store.list_telemetry_samples(device_id="dev-1", limit=10, offset=0)
+        assert remained == []
+    finally:
+        store.close()

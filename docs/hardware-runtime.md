@@ -42,3 +42,15 @@ nanobot hardware serve --adapter <mock|websocket|ec600> --logs
 - `voice_turn_avg_latency_ms`
 - `ingest_queue_utilization`
 - `device_offline_rate`
+
+## 5. 可选能力开关
+
+- `hardware.toolResult.enabled`: 消费设备 `tool_result` 回执并写入运行事件
+- `hardware.toolResult.markDeviceOperationEnabled`: 将 `tool_result` 回写到 `device_operation` 状态
+- `hardware.telemetry.normalizeEnabled`: 启用 telemetry/IMU 结构化
+- `hardware.telemetry.persistSamplesEnabled`: 将结构化 telemetry 样本入库
+
+相关查询接口：
+
+- `GET /v1/lifelog/telemetry_samples`
+- `POST /v1/lifelog/retention/cleanup`

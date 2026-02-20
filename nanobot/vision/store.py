@@ -349,3 +349,64 @@ class VisionLifelogStore:
             offset=offset,
             order=order,
         )
+
+    def add_telemetry_sample(
+        self,
+        *,
+        device_id: str,
+        session_id: str,
+        schema_version: str,
+        sample: dict[str, Any],
+        raw: dict[str, Any] | None = None,
+        trace_id: str = "",
+        ts: int | None = None,
+    ) -> int:
+        return self.db.add_telemetry_sample(
+            device_id=device_id,
+            session_id=session_id,
+            schema_version=schema_version,
+            sample=sample,
+            raw=raw,
+            trace_id=trace_id,
+            ts=ts,
+        )
+
+    def list_telemetry_samples(
+        self,
+        *,
+        device_id: str | None = None,
+        session_id: str | None = None,
+        trace_id: str | None = None,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        return self.db.list_telemetry_samples(
+            device_id=device_id,
+            session_id=session_id,
+            trace_id=trace_id,
+            start_ts=start_ts,
+            end_ts=end_ts,
+            limit=limit,
+            offset=offset,
+        )
+
+    def cleanup_retention(
+        self,
+        *,
+        runtime_events_days: int | None = None,
+        thought_traces_days: int | None = None,
+        device_sessions_days: int | None = None,
+        device_operations_days: int | None = None,
+        telemetry_samples_days: int | None = None,
+        now_ms: int | None = None,
+    ) -> dict[str, int]:
+        return self.db.cleanup_retention(
+            runtime_events_days=runtime_events_days,
+            thought_traces_days=thought_traces_days,
+            device_sessions_days=device_sessions_days,
+            device_operations_days=device_operations_days,
+            telemetry_samples_days=telemetry_samples_days,
+            now_ms=now_ms,
+        )

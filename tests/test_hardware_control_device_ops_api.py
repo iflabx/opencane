@@ -250,3 +250,95 @@ def test_control_api_device_ops_endpoints_integration() -> None:
     finally:
         server.stop()
         _stop_loop_thread(loop, thread)
+
+
+def test_control_api_device_ops_accepts_legacy_alias_and_flat_payload() -> None:
+    loop, thread = _start_loop_thread()
+    port = _free_port()
+    runtime = _FakeRuntime()
+    lifelog = _FakeLifelogService()
+    server = HardwareControlServer(
+        host="127.0.0.1",
+        port=port,
+        runtime=runtime,  # type: ignore[arg-type]
+        vision=None,
+        lifelog=lifelog,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        loop=loop,
+        auth_enabled=False,
+        auth_token="",
+    )
+    server.start()
+    time.sleep(0.1)
+    try:
+        status, data = _post_json(
+            f"http://127.0.0.1:{port}/v1/device/ops/dispatch",
+            {
+                "deviceId": "dev-legacy",
+                "operationType": "config",
+                "operationId": "legacy-op-1",
+                "traceId": "trace-legacy-1",
+                "payload": {"volume": 5, "mode": "night"},
+            },
+        )
+        assert status == 200
+        assert data.get("success") is True
+        assert runtime.dispatch_calls
+        first_call = runtime.dispatch_calls[-1]
+        assert first_call["device_id"] == "dev-legacy"
+        assert first_call["op_type"] == "set_config"
+        assert first_call["trace_id"] == "trace-legacy-1"
+        assert first_call["payload"]["volume"] == 5
+
+        status, data = _post_json(
+            f"http://127.0.0.1:{port}/v1/device/ops/dispatch",
+            {
+                "device_id": "dev-flat",
+                "op_type": "tool_call",
+                "trace_id": "trace-flat-1",
+                "name": "camera.scan",
+                "arguments": {"detail": "high"},
+            },
+        )
+        assert status == 200
+        assert data.get("success") is True
+        second_call = runtime.dispatch_calls[-1]
+        assert second_call["device_id"] == "dev-flat"
+        assert second_call["op_type"] == "tool_call"
+        assert second_call["payload"]["name"] == "camera.scan"
+        assert second_call["payload"]["arguments"] == {"detail": "high"}
+        assert "op_type" not in second_call["payload"]
+    finally:
+        server.stop()
+        _stop_loop_thread(loop, thread)
+
+
+def test_control_api_device_ops_ack_missing_operation_returns_bad_request() -> None:
+    loop, thread = _start_loop_thread()
+    port = _free_port()
+    runtime = _FakeRuntime()
+    lifelog = _FakeLifelogService()
+    server = HardwareControlServer(
+        host="127.0.0.1",
+        port=port,
+        runtime=runtime,  # type: ignore[arg-type]
+        vision=None,
+        lifelog=lifelog,  # type: ignore[arg-type]
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        loop=loop,
+        auth_enabled=False,
+        auth_token="",
+    )
+    server.start()
+    time.sleep(0.1)
+    try:
+        status, data = _post_json(
+            f"http://127.0.0.1:{port}/v1/device/ops/not-found/ack",
+            {"status": "acked", "result": {"ok": True}},
+        )
+        assert status == 400
+        assert data.get("success") is False
+        assert "operation not found" in str(data.get("error") or "")
+    finally:
+        server.stop()
+        _stop_loop_thread(loop, thread)

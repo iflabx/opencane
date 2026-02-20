@@ -25,6 +25,7 @@ from nanobot.hardware.runtime.session_manager import (
     DeviceSession,
     DeviceSessionManager,
 )
+from nanobot.hardware.runtime.telemetry import normalize_telemetry_payload
 
 
 class DeviceRuntimeCore:
@@ -50,6 +51,10 @@ class DeviceRuntimeCore:
         allow_unbound_devices: bool = False,
         require_activated_devices: bool = True,
         control_plane_client: Any | None = None,
+        tool_result_enabled: bool = False,
+        tool_result_mark_device_operation_enabled: bool = True,
+        telemetry_normalize_enabled: bool = False,
+        telemetry_persist_samples_enabled: bool = False,
     ) -> None:
         self.adapter = adapter
         self.agent_loop = agent_loop
@@ -72,6 +77,10 @@ class DeviceRuntimeCore:
         self.allow_unbound_devices = bool(allow_unbound_devices)
         self.require_activated_devices = bool(require_activated_devices)
         self.control_plane_client = control_plane_client
+        self.tool_result_enabled = bool(tool_result_enabled)
+        self.tool_result_mark_device_operation_enabled = bool(tool_result_mark_device_operation_enabled)
+        self.telemetry_normalize_enabled = bool(telemetry_normalize_enabled)
+        self.telemetry_persist_samples_enabled = bool(telemetry_persist_samples_enabled)
         self.metrics = HardwareRuntimeMetrics()
         self._running = False
         self._event_task: asyncio.Task | None = None
@@ -171,6 +180,7 @@ class DeviceRuntimeCore:
                 DeviceEventType.LISTEN_START,
                 DeviceEventType.LISTEN_STOP,
                 DeviceEventType.TELEMETRY,
+                DeviceEventType.TOOL_RESULT,
             }:
                 await self._send_ack(session, event.seq, trace_id=trace_id)
             logger.debug(f"Discard duplicate event seq={event.seq} {event.device_id}/{event.session_id}")
@@ -240,13 +250,40 @@ class DeviceRuntimeCore:
             self.sessions.update_state(session.device_id, session.session_id, ConnectionState.THINKING)
             self._spawn(self._process_image_ready(session, event.payload, trace_id=trace_id))
         elif event.type == DeviceEventType.TELEMETRY:
-            self.sessions.update_telemetry(session.device_id, session.session_id, event.payload)
+            telemetry = event.payload if isinstance(event.payload, dict) else {}
+            self.sessions.update_telemetry(session.device_id, session.session_id, telemetry)
+            telemetry_structured: dict[str, Any] = {}
+            if self.telemetry_normalize_enabled:
+                telemetry_structured = normalize_telemetry_payload(telemetry, ts_ms=event.ts)
+                if telemetry_structured:
+                    self.sessions.update_metadata(
+                        session.device_id,
+                        session.session_id,
+                        {
+                            "telemetry_structured": telemetry_structured,
+                            "telemetry_schema_version": str(
+                                telemetry_structured.get("schema_version") or ""
+                            ),
+                        },
+                    )
+                    await self._persist_telemetry_sample(
+                        session,
+                        raw_telemetry=telemetry,
+                        structured_telemetry=telemetry_structured,
+                        trace_id=trace_id,
+                        ts=event.ts,
+                    )
             await self._send_ack(session, event.seq, trace_id=trace_id)
+            event_payload: dict[str, Any] = {"trace_id": trace_id, "telemetry": telemetry}
+            if telemetry_structured:
+                event_payload["telemetry_structured"] = telemetry_structured
             await self._record_lifelog_event(
                 session,
                 "telemetry",
-                payload={"trace_id": trace_id, "telemetry": event.payload},
+                payload=event_payload,
             )
+        elif event.type == DeviceEventType.TOOL_RESULT:
+            await self._handle_tool_result(session, event, trace_id=trace_id)
         elif event.type == DeviceEventType.ERROR:
             logger.warning(
                 f"Device reported error {session.device_id}/{session.session_id}: {event.payload}"
@@ -1307,7 +1344,7 @@ class DeviceRuntimeCore:
         transcript: str,
         policy_context: dict[str, Any],
     ) -> dict[str, Any]:
-        return {
+        context = {
             "device_id": session.device_id,
             "session_id": session.session_id,
             "state": session.state.value,
@@ -1317,6 +1354,10 @@ class DeviceRuntimeCore:
             "session_metadata": dict(session.metadata),
             "tool_policy": dict(policy_context or {}),
         }
+        telemetry_structured = session.metadata.get("telemetry_structured")
+        if isinstance(telemetry_structured, dict):
+            context["telemetry_structured"] = dict(telemetry_structured)
+        return context
 
     @staticmethod
     def _resolve_session_persistence_store(lifelog_service: Any | None) -> Any | None:
@@ -1355,6 +1396,127 @@ class DeviceRuntimeCore:
             )
         except Exception as e:
             logger.debug(f"lifelog record runtime event failed: {e}")
+
+    async def _persist_telemetry_sample(
+        self,
+        session: DeviceSession,
+        *,
+        raw_telemetry: dict[str, Any],
+        structured_telemetry: dict[str, Any],
+        trace_id: str,
+        ts: int,
+    ) -> None:
+        if not self.telemetry_persist_samples_enabled:
+            return
+        if self.lifelog is None or not hasattr(self.lifelog, "append_telemetry_sample"):
+            return
+        payload = {
+            "device_id": session.device_id,
+            "session_id": session.session_id,
+            "schema_version": str(structured_telemetry.get("schema_version") or ""),
+            "sample": dict(structured_telemetry),
+            "raw": dict(raw_telemetry),
+            "trace_id": str(trace_id),
+            "ts": int(ts),
+        }
+        try:
+            result = self.lifelog.append_telemetry_sample(payload)
+            if asyncio.iscoroutine(result):
+                await result
+        except Exception as e:
+            logger.debug(f"telemetry sample persistence failed: {e}")
+
+    async def _handle_tool_result(
+        self,
+        session: DeviceSession,
+        event: CanonicalEnvelope,
+        *,
+        trace_id: str,
+    ) -> None:
+        payload = event.payload if isinstance(event.payload, dict) else {}
+        await self._send_ack(session, event.seq, trace_id=trace_id)
+        operation_id = str(
+            payload.get("operation_id")
+            or payload.get("operationId")
+            or payload.get("op_id")
+            or ""
+        ).strip()
+        tool_name = str(payload.get("tool_name") or payload.get("toolName") or payload.get("name") or "").strip()
+        explicit_success = _to_bool(payload.get("success"), default=None)
+        error = str(payload.get("error") or "").strip()
+        success = bool(explicit_success) if explicit_success is not None else not bool(error)
+        result = payload.get("result")
+        result_map = result if isinstance(result, dict) else {}
+        if not result_map and result is not None and result != "":
+            result_map = {"value": result}
+
+        event_payload: dict[str, Any] = {
+            "trace_id": trace_id,
+            "operation_id": operation_id,
+            "tool_name": tool_name,
+            "success": success,
+            "result": result_map,
+            "error": error,
+        }
+        risk_level = "P3"
+        if not success and error:
+            risk_level = "P2"
+        if not self.tool_result_enabled:
+            event_payload["accepted"] = False
+            event_payload["reason"] = "feature_disabled"
+            await self._record_lifelog_event(
+                session,
+                "tool_result_ignored",
+                payload=event_payload,
+                risk_level="P3",
+                confidence=1.0,
+            )
+            return
+
+        event_payload["accepted"] = True
+        await self._record_lifelog_event(
+            session,
+            "tool_result",
+            payload=event_payload,
+            risk_level=risk_level,
+            confidence=0.9 if success else 0.7,
+        )
+        if self.tool_result_mark_device_operation_enabled and operation_id:
+            await self._mark_device_operation_from_tool_result(
+                operation_id=operation_id,
+                success=success,
+                result=result_map,
+                error=error,
+                session=session,
+            )
+
+    async def _mark_device_operation_from_tool_result(
+        self,
+        *,
+        operation_id: str,
+        success: bool,
+        result: dict[str, Any],
+        error: str,
+        session: DeviceSession,
+    ) -> None:
+        if self.lifelog is None or not hasattr(self.lifelog, "device_operation_mark"):
+            return
+        status = "acked" if success else "failed"
+        payload = {
+            "operation_id": str(operation_id),
+            "status": status,
+            "result": dict(result),
+            "error": str(error or ""),
+            "session_id": session.session_id,
+            "acked_at_ms": int(time.time() * 1000) if success else 0,
+        }
+        try:
+            raw = self.lifelog.device_operation_mark(payload)
+            value = await raw if asyncio.iscoroutine(raw) else raw
+            if isinstance(value, dict) and not bool(value.get("success", True)):
+                logger.debug(f"device operation mark failed: {value.get('error')}")
+        except Exception as e:
+            logger.debug(f"device operation mark from tool_result failed: {e}")
 
     async def _ingest_lifelog_image(
         self,
@@ -1443,6 +1605,19 @@ def _to_int(value: Any, default: int) -> int:
         return int(value)
     except (TypeError, ValueError):
         return int(default)
+
+
+def _to_bool(value: Any, default: bool | None = None) -> bool | None:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    text = str(value).strip().lower()
+    if text in {"1", "true", "yes", "on"}:
+        return True
+    if text in {"0", "false", "no", "off"}:
+        return False
+    return default
 
 
 def _shorten(text: str, max_chars: int) -> str:

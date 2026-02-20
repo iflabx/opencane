@@ -46,6 +46,8 @@ class _FakeLifelogService:
         self.thought_trace_query_calls: list[dict] = []
         self.thought_trace_replay_calls: list[dict] = []
         self.thought_trace_items: list[dict] = []
+        self.telemetry_samples_calls: list[dict] = []
+        self.retention_cleanup_calls: list[dict] = []
 
     async def enqueue_image(self, payload):  # type: ignore[no-untyped-def]
         self.enqueue_calls.append(dict(payload))
@@ -203,6 +205,33 @@ class _FakeLifelogService:
             "items": items,
         }
 
+    async def telemetry_samples_query(self, payload):  # type: ignore[no-untyped-def]
+        self.telemetry_samples_calls.append(dict(payload))
+        return {
+            "success": True,
+            "count": 1,
+            "items": [
+                {
+                    "id": 1,
+                    "device_id": str(payload.get("device_id") or "dev-1"),
+                    "session_id": str(payload.get("session_id") or "sess-1"),
+                    "schema_version": "opencane.telemetry.v1",
+                    "sample": {"battery": {"percent": 80}},
+                    "raw": {"battery": 80},
+                    "trace_id": str(payload.get("trace_id") or "trace-telemetry"),
+                    "ts": 1000,
+                }
+            ],
+        }
+
+    async def retention_cleanup(self, payload):  # type: ignore[no-untyped-def]
+        self.retention_cleanup_calls.append(dict(payload))
+        return {
+            "success": True,
+            "deleted": {"telemetry_samples": 1, "runtime_events": 0},
+            "retention_days": {"telemetry_samples": int(payload.get("telemetry_samples_days") or 7)},
+        }
+
     def record_observability_sample(self, sample):  # type: ignore[no-untyped-def]
         item = dict(sample)
         self.observability_record_calls.append(item)
@@ -344,6 +373,24 @@ def test_control_api_lifelog_endpoints_integration() -> None:
         assert data.get("success") is True
         assert data.get("summary", {}).get("count") == 1
         assert lifelog.thought_trace_replay_calls
+
+        status, data = _get_json(
+            f"http://127.0.0.1:{port}/v1/lifelog/telemetry_samples?device_id=dev-1&session_id=sess-1&limit=5&offset=1"
+        )
+        assert status == 200
+        assert data.get("success") is True
+        assert data.get("count") == 1
+        assert lifelog.telemetry_samples_calls
+        assert str(lifelog.telemetry_samples_calls[-1].get("offset")) == "1"
+
+        status, data = _post_json(
+            f"http://127.0.0.1:{port}/v1/lifelog/retention/cleanup",
+            {"telemetry_samples_days": 3},
+        )
+        assert status == 200
+        assert data.get("success") is True
+        assert data.get("deleted", {}).get("telemetry_samples") == 1
+        assert lifelog.retention_cleanup_calls
 
         status, data = _get_json(
             f"http://127.0.0.1:{port}/v1/lifelog/timeline?session_id=sess-1&limit=5&offset=2"
