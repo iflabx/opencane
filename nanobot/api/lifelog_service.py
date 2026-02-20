@@ -8,12 +8,13 @@ import time
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from loguru import logger
 
 from nanobot.config.schema import Config
 from nanobot.storage import ChromaLifelogIndex, QdrantLifelogIndex, SQLiteLifelogStore
+from nanobot.utils.redaction import redact_sensitive_map
 from nanobot.vision import (
     ImageAssetStore,
     LifelogTimelineService,
@@ -54,6 +55,11 @@ class LifelogService:
         ingest_workers: int = 2,
         ingest_overflow_policy: str = "reject",
         ingest_enqueue_timeout_ms: int = 500,
+        retention_runtime_events_days: int = 30,
+        retention_thought_traces_days: int = 30,
+        retention_device_sessions_days: int = 30,
+        retention_device_operations_days: int = 30,
+        retention_telemetry_samples_days: int = 7,
     ) -> None:
         self.store = store
         self.indexer = indexer
@@ -68,6 +74,11 @@ class LifelogService:
             policy = "reject"
         self.ingest_overflow_policy = policy
         self.ingest_enqueue_timeout_ms = max(1, int(ingest_enqueue_timeout_ms))
+        self.retention_runtime_events_days = max(1, int(retention_runtime_events_days))
+        self.retention_thought_traces_days = max(1, int(retention_thought_traces_days))
+        self.retention_device_sessions_days = max(1, int(retention_device_sessions_days))
+        self.retention_device_operations_days = max(1, int(retention_device_operations_days))
+        self.retention_telemetry_samples_days = max(1, int(retention_telemetry_samples_days))
 
         self._ingest_queue: asyncio.Queue[_IngestJob | object] | None = None
         self._ingest_worker_tasks: list[asyncio.Task[None]] = []
@@ -106,12 +117,20 @@ class LifelogService:
         vector_backend = str(config.lifelog.vector_backend or "chroma").strip().lower()
         index_backend: Any
         if vector_backend == "qdrant":
+            embedding_fn: Callable[[str], list[float]] | None = None
+            if bool(config.lifelog.embedding_enabled):
+                embedding_fn = _build_litellm_embedding_fn(config)
+                if embedding_fn is None:
+                    logger.warning("lifelog embedding is enabled but provider setup failed, fallback to hash embed")
             try:
                 index_backend = QdrantLifelogIndex(
                     collection_name=str(config.lifelog.qdrant_collection or "lifelog_semantic"),
                     url=config.lifelog.qdrant_url,
                     api_key=config.lifelog.qdrant_api_key,
                     timeout_seconds=config.lifelog.qdrant_timeout_seconds,
+                    vector_size=max(8, int(config.lifelog.qdrant_vector_size)),
+                    embedding_enabled=bool(config.lifelog.embedding_enabled),
+                    embedding_fn=embedding_fn,
                 )
             except Exception as e:
                 logger.warning(f"qdrant backend init failed, fallback to chroma: {e}")
@@ -135,6 +154,19 @@ class LifelogService:
             dedup_max_distance=config.lifelog.dedup_max_distance,
         )
         timeline = LifelogTimelineService(store)
+        if bool(config.lifelog.retention_cleanup_on_startup) and hasattr(store, "cleanup_retention"):
+            try:
+                deleted = store.cleanup_retention(
+                    runtime_events_days=config.lifelog.retention_runtime_events_days,
+                    thought_traces_days=config.lifelog.retention_thought_traces_days,
+                    device_sessions_days=config.lifelog.retention_device_sessions_days,
+                    device_operations_days=config.lifelog.retention_device_operations_days,
+                    telemetry_samples_days=config.lifelog.retention_telemetry_samples_days,
+                )
+                if isinstance(deleted, dict) and any(int(v or 0) > 0 for v in deleted.values()):
+                    logger.info(f"lifelog retention cleanup deleted={deleted}")
+            except Exception as e:
+                logger.warning(f"lifelog retention cleanup failed: {e}")
         logger.info(
             "Lifelog service ready "
             f"sqlite={sqlite_path} chroma={chroma_dir} images={image_asset_dir} "
@@ -155,6 +187,11 @@ class LifelogService:
             ingest_workers=config.lifelog.ingest_workers,
             ingest_overflow_policy=config.lifelog.ingest_overflow_policy,
             ingest_enqueue_timeout_ms=config.lifelog.ingest_enqueue_timeout_ms,
+            retention_runtime_events_days=config.lifelog.retention_runtime_events_days,
+            retention_thought_traces_days=config.lifelog.retention_thought_traces_days,
+            retention_device_sessions_days=config.lifelog.retention_device_sessions_days,
+            retention_device_operations_days=config.lifelog.retention_device_operations_days,
+            retention_telemetry_samples_days=config.lifelog.retention_telemetry_samples_days,
         )
 
     async def shutdown(self) -> None:
@@ -200,6 +237,13 @@ class LifelogService:
             "enabled": True,
             "vector_index": vector,
             "ingest_queue": self._ingest_queue_snapshot(),
+            "retention": {
+                "runtime_events_days": int(self.retention_runtime_events_days),
+                "thought_traces_days": int(self.retention_thought_traces_days),
+                "device_sessions_days": int(self.retention_device_sessions_days),
+                "device_operations_days": int(self.retention_device_operations_days),
+                "telemetry_samples_days": int(self.retention_telemetry_samples_days),
+            },
         }
 
     def record_runtime_event(
@@ -290,6 +334,123 @@ class LifelogService:
                 }
             )
         return output
+
+    def append_telemetry_sample(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not hasattr(self.store, "add_telemetry_sample"):
+            return {"success": False, "error": "telemetry sample storage is unavailable"}
+        device_id = str(payload.get("device_id") or payload.get("deviceId") or "").strip()
+        session_id = str(payload.get("session_id") or payload.get("sessionId") or "").strip()
+        schema_version = str(payload.get("schema_version") or payload.get("schemaVersion") or "").strip()
+        sample = payload.get("sample")
+        raw = payload.get("raw")
+        trace_id = str(payload.get("trace_id") or payload.get("traceId") or "").strip()
+        ts = _to_int(payload.get("ts"))
+        if not device_id:
+            return {"success": False, "error": "device_id is required"}
+        if not session_id:
+            return {"success": False, "error": "session_id is required"}
+        if not schema_version:
+            return {"success": False, "error": "schema_version is required"}
+        if not isinstance(sample, dict):
+            return {"success": False, "error": "sample must be object"}
+        raw_map = raw if isinstance(raw, dict) else {}
+        try:
+            sample_id = self.store.add_telemetry_sample(
+                device_id=device_id,
+                session_id=session_id,
+                schema_version=schema_version,
+                sample=sample,
+                raw=raw_map,
+                trace_id=trace_id,
+                ts=ts,
+            )
+            return {"success": True, "sample_id": int(sample_id)}
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def telemetry_samples_query(self, payload: dict[str, Any]) -> dict[str, Any]:
+        if not hasattr(self.store, "list_telemetry_samples"):
+            return {"success": False, "error": "telemetry sample storage is unavailable"}
+        device_id = str(payload.get("device_id") or payload.get("deviceId") or "").strip() or None
+        session_id = str(payload.get("session_id") or payload.get("sessionId") or "").strip() or None
+        trace_id = str(payload.get("trace_id") or payload.get("traceId") or "").strip() or None
+        start_ts = _to_int(payload.get("start_ts"))
+        end_ts = _to_int(payload.get("end_ts"))
+        offset = max(0, _to_int(payload.get("offset"), default=0) or 0)
+        limit = _to_int(payload.get("limit"), default=200) or 200
+        limit = min(max(1, limit), 5000)
+        try:
+            items = self.store.list_telemetry_samples(
+                device_id=device_id,
+                session_id=session_id,
+                trace_id=trace_id,
+                start_ts=start_ts,
+                end_ts=end_ts,
+                limit=limit,
+                offset=offset,
+            )
+            return {
+                "success": True,
+                "filters": {
+                    "device_id": device_id,
+                    "session_id": session_id,
+                    "trace_id": trace_id,
+                    "start_ts": start_ts,
+                    "end_ts": end_ts,
+                    "limit": limit,
+                    "offset": offset,
+                },
+                "count": len(items),
+                "items": items,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    async def retention_cleanup(self, payload: dict[str, Any] | None = None) -> dict[str, Any]:
+        if not hasattr(self.store, "cleanup_retention"):
+            return {"success": False, "error": "retention cleanup is unavailable"}
+        data = payload if isinstance(payload, dict) else {}
+        runtime_events_days = _to_int(
+            data.get("runtime_events_days"),
+            default=self.retention_runtime_events_days,
+        ) or self.retention_runtime_events_days
+        thought_traces_days = _to_int(
+            data.get("thought_traces_days"),
+            default=self.retention_thought_traces_days,
+        ) or self.retention_thought_traces_days
+        device_sessions_days = _to_int(
+            data.get("device_sessions_days"),
+            default=self.retention_device_sessions_days,
+        ) or self.retention_device_sessions_days
+        device_operations_days = _to_int(
+            data.get("device_operations_days"),
+            default=self.retention_device_operations_days,
+        ) or self.retention_device_operations_days
+        telemetry_samples_days = _to_int(
+            data.get("telemetry_samples_days"),
+            default=self.retention_telemetry_samples_days,
+        ) or self.retention_telemetry_samples_days
+        try:
+            deleted = self.store.cleanup_retention(
+                runtime_events_days=runtime_events_days,
+                thought_traces_days=thought_traces_days,
+                device_sessions_days=device_sessions_days,
+                device_operations_days=device_operations_days,
+                telemetry_samples_days=telemetry_samples_days,
+            )
+            return {
+                "success": True,
+                "retention_days": {
+                    "runtime_events": runtime_events_days,
+                    "thought_traces": thought_traces_days,
+                    "device_sessions": device_sessions_days,
+                    "device_operations": device_operations_days,
+                    "telemetry_samples": telemetry_samples_days,
+                },
+                "deleted": deleted if isinstance(deleted, dict) else {},
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     async def enqueue_image(self, payload: dict[str, Any]) -> dict[str, Any]:
         session_id = str(payload.get("session_id") or payload.get("sessionId") or "").strip()
@@ -938,9 +1099,12 @@ class LifelogService:
         return {"success": True, "device": item}
 
     async def device_binding_query(self, payload: dict[str, Any]) -> dict[str, Any]:
+        mask_sensitive = bool(_to_bool(payload.get("mask_sensitive")))
         device_id = str(payload.get("device_id") or payload.get("deviceId") or "").strip()
         if device_id:
             item = self.store.get_device_binding(device_id=device_id) if hasattr(self.store, "get_device_binding") else None
+            if isinstance(item, dict) and mask_sensitive:
+                item = redact_sensitive_map(item)
             return {"success": True, "count": 1 if item else 0, "items": [item] if item else []}
         status = str(payload.get("status") or "").strip() or None
         user_id = str(payload.get("user_id") or payload.get("userId") or "").strip() or None
@@ -953,6 +1117,8 @@ class LifelogService:
             limit=limit,
             offset=offset,
         )
+        if mask_sensitive:
+            items = [redact_sensitive_map(item) for item in items if isinstance(item, dict)]
         return {
             "success": True,
             "filters": {"status": status, "user_id": user_id, "limit": limit, "offset": offset},
@@ -1294,6 +1460,48 @@ def _device_op_command_type(op_type: str) -> str:
 
 def _sort_count_dict(data: dict[str, int]) -> dict[str, int]:
     return dict(sorted(data.items(), key=lambda kv: (-int(kv[1]), kv[0])))
+
+
+def _build_litellm_embedding_fn(config: Config) -> Callable[[str], list[float]] | None:
+    model = str(config.lifelog.embedding_model or "").strip()
+    if not model:
+        logger.warning("lifelog embedding_enabled=true but lifelog.embedding_model is empty")
+        return None
+    provider = config.get_provider(model=model)
+    api_key = str(provider.api_key or "").strip() if provider is not None else ""
+    if not api_key and not model.startswith("bedrock/"):
+        logger.warning("lifelog embedding provider api key is missing")
+        return None
+    api_base = config.get_api_base(model=model)
+    extra_headers = provider.extra_headers if provider is not None else None
+    timeout_s = max(0.5, float(config.lifelog.embedding_timeout_seconds))
+
+    def _embed_text(text: str) -> list[float]:
+        from litellm import embedding
+
+        kwargs: dict[str, Any] = {
+            "model": model,
+            "input": [str(text or "")],
+            "timeout": timeout_s,
+        }
+        if api_key:
+            kwargs["api_key"] = api_key
+        if api_base:
+            kwargs["api_base"] = api_base
+        if extra_headers:
+            kwargs["extra_headers"] = dict(extra_headers)
+        response = embedding(**kwargs)
+        data = response.get("data") if isinstance(response, dict) else getattr(response, "data", None)
+        if not isinstance(data, list) or not data:
+            raise RuntimeError("empty embedding response")
+        first = data[0]
+        vector = first.get("embedding") if isinstance(first, dict) else getattr(first, "embedding", None)
+        if not isinstance(vector, list) or not vector:
+            raise RuntimeError("invalid embedding vector")
+        return [float(item) for item in vector]
+
+    logger.info(f"lifelog embedding enabled via provider model={model}")
+    return _embed_text
 
 
 def _extract_int(value: Any, *, default: int = 0) -> int:

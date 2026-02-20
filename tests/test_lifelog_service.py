@@ -524,6 +524,42 @@ async def test_lifelog_service_device_operation_lifecycle(tmp_path) -> None:  # 
 
 
 @pytest.mark.asyncio
+async def test_lifelog_service_telemetry_samples_and_retention_cleanup(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    config = Config()
+    config.lifelog.sqlite_path = str(tmp_path / "lifelog-telemetry.db")
+    config.lifelog.chroma_persist_dir = str(tmp_path / "chroma")
+    config.lifelog.image_asset_dir = str(tmp_path / "images")
+    service = LifelogService.from_config(config, analyzer=None)
+    try:
+        appended = service.append_telemetry_sample(
+            {
+                "device_id": "dev-tele-1",
+                "session_id": "sess-tele-1",
+                "schema_version": "opencane.telemetry.v1",
+                "sample": {"battery": {"percent": 77}},
+                "raw": {"battery": 77},
+                "trace_id": "trace-tele-1",
+                "ts": 1000,
+            }
+        )
+        assert appended["success"] is True
+        assert int(appended["sample_id"]) > 0
+
+        queried = await service.telemetry_samples_query(
+            {"device_id": "dev-tele-1", "session_id": "sess-tele-1", "limit": 10, "offset": 0}
+        )
+        assert queried["success"] is True
+        assert queried["count"] == 1
+        assert queried["items"][0]["schema_version"] == "opencane.telemetry.v1"
+
+        cleaned = await service.retention_cleanup({"telemetry_samples_days": 1})
+        assert cleaned["success"] is True
+        assert int(cleaned["deleted"]["telemetry_samples"]) >= 1
+    finally:
+        await service.shutdown()
+
+
+@pytest.mark.asyncio
 async def test_lifelog_service_observability_samples_persist_across_restart(tmp_path) -> None:  # type: ignore[no-untyped-def]
     config = Config()
     sqlite_path = tmp_path / "lifelog-observability.db"

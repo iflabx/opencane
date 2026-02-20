@@ -139,6 +139,9 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
         if parts == ["v1", "lifelog", "thought_trace", "replay"]:
             self._get_lifelog_thought_trace_replay(parsed.query)
             return
+        if parts == ["v1", "lifelog", "telemetry_samples"]:
+            self._get_lifelog_telemetry_samples(parsed.query)
+            return
         if parts == ["v1", "lifelog", "safety", "stats"]:
             self._get_lifelog_safety_stats(parsed.query)
             return
@@ -214,6 +217,9 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
             return
         if parts == ["v1", "lifelog", "thought_trace"]:
             self._post_lifelog_thought_trace(payload)
+            return
+        if parts == ["v1", "lifelog", "retention", "cleanup"]:
+            self._post_lifelog_retention_cleanup(payload)
             return
         if parts == ["v1", "digital-task", "execute"]:
             self._post_digital_task_execute(payload)
@@ -385,6 +391,7 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
             "device_id": _first_query_value(params, "device_id", "deviceId"),
             "status": _first_query_value(params, "status"),
             "user_id": _first_query_value(params, "user_id", "userId"),
+            "mask_sensitive": _first_query_value(params, "mask_sensitive", "maskSensitive"),
             "limit": _first_query_value(params, "limit"),
             "offset": _first_query_value(params, "offset"),
         }
@@ -490,7 +497,14 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
         if not self.runtime or not self.loop:
             self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"success": False, "error": "runtime unavailable"})
             return
-        op_type = _normalize_device_op_type(op_type_override or payload.get("op_type") or payload.get("operation_type") or payload.get("type"))
+        op_type = _normalize_device_op_type(
+            op_type_override
+            or payload.get("op_type")
+            or payload.get("opType")
+            or payload.get("operation_type")
+            or payload.get("operationType")
+            or payload.get("type")
+        )
         device_id = str(device_id_override or payload.get("device_id") or payload.get("deviceId") or "").strip()
         session_id = str(payload.get("session_id") or payload.get("sessionId") or "").strip()
         operation_id = str(payload.get("operation_id") or payload.get("operationId") or "").strip()
@@ -951,6 +965,46 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
             "offset": _first_query_value(params, "offset"),
         }
         fut = asyncio.run_coroutine_threadsafe(self.lifelog.thought_trace_replay(payload), self.loop)
+        ok_wait, result, err_code, err_msg = self._resolve_future_result(fut, timeout=20)
+        if not ok_wait:
+            self._send_json(err_code, {"success": False, "error": err_msg})
+            return
+        status = HTTPStatus.OK if result.get("success") else HTTPStatus.BAD_REQUEST
+        self._send_json(status, result)
+
+    def _get_lifelog_telemetry_samples(self, query: str) -> None:
+        if not self.lifelog or not self.loop:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"success": False, "error": "lifelog unavailable"})
+            return
+        if not hasattr(self.lifelog, "telemetry_samples_query"):
+            self._send_json(HTTPStatus.NOT_IMPLEMENTED, {"success": False, "error": "telemetry samples unavailable"})
+            return
+        params = parse_qs(query or "")
+        payload = {
+            "device_id": _first_query_value(params, "device_id", "deviceId"),
+            "session_id": _first_query_value(params, "session_id", "sessionId"),
+            "trace_id": _first_query_value(params, "trace_id", "traceId"),
+            "start_ts": _first_query_value(params, "start_ts"),
+            "end_ts": _first_query_value(params, "end_ts"),
+            "limit": _first_query_value(params, "limit"),
+            "offset": _first_query_value(params, "offset"),
+        }
+        fut = asyncio.run_coroutine_threadsafe(self.lifelog.telemetry_samples_query(payload), self.loop)
+        ok_wait, result, err_code, err_msg = self._resolve_future_result(fut, timeout=15)
+        if not ok_wait:
+            self._send_json(err_code, {"success": False, "error": err_msg})
+            return
+        status = HTTPStatus.OK if result.get("success") else HTTPStatus.BAD_REQUEST
+        self._send_json(status, result)
+
+    def _post_lifelog_retention_cleanup(self, payload: dict[str, Any]) -> None:
+        if not self.lifelog or not self.loop:
+            self._send_json(HTTPStatus.SERVICE_UNAVAILABLE, {"success": False, "error": "lifelog unavailable"})
+            return
+        if not hasattr(self.lifelog, "retention_cleanup"):
+            self._send_json(HTTPStatus.NOT_IMPLEMENTED, {"success": False, "error": "retention cleanup unavailable"})
+            return
+        fut = asyncio.run_coroutine_threadsafe(self.lifelog.retention_cleanup(payload), self.loop)
         ok_wait, result, err_code, err_msg = self._resolve_future_result(fut, timeout=20)
         if not ok_wait:
             self._send_json(err_code, {"success": False, "error": err_msg})
