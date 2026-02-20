@@ -165,7 +165,7 @@ class EC600MQTTAdapter(GatewayAdapter):
         if not self._connected:
             if is_control_json and isinstance(payload, str):
                 self._buffer_pending_control(cmd.device_id, cmd.seq, topic, payload, qos)
-            logger.warning("EC600 MQTT adapter is disconnected, control command buffered or dropped")
+            logger.warning(f"{self.name} MQTT adapter is disconnected, control command buffered or dropped")
             return
 
         result = self._mqtt_client.publish(topic, payload=payload, qos=qos)
@@ -182,7 +182,7 @@ class EC600MQTTAdapter(GatewayAdapter):
             import paho.mqtt.client as mqtt
         except ImportError as e:
             raise RuntimeError(
-                "paho-mqtt is required for EC600MQTTAdapter. Install with `pip install paho-mqtt`."
+                f"paho-mqtt is required for {self.__class__.__name__}. Install with `pip install paho-mqtt`."
             ) from e
 
         client = mqtt.Client(client_id=self.config.client_id, clean_session=True)
@@ -220,7 +220,7 @@ class EC600MQTTAdapter(GatewayAdapter):
         if rc_int != 0:
             logger.warning(f"MQTT connect failed rc={rc_int}")
             return
-        logger.info(f"EC600 MQTT connected to {self.config.host}:{self.config.port}")
+        logger.info(f"{self.name} MQTT connected to {self.config.host}:{self.config.port}")
         client.subscribe(self.config.up_control_topic, qos=self.config.qos_control)
         client.subscribe(self.config.up_audio_topic, qos=self.config.qos_audio)
 
@@ -239,7 +239,7 @@ class EC600MQTTAdapter(GatewayAdapter):
             rc_int = -1
         self._connected = False
         if self._running:
-            logger.warning(f"EC600 MQTT disconnected rc={rc_int}")
+            logger.warning(f"{self.name} MQTT disconnected rc={rc_int}")
 
     def _on_message(self, client: Any, userdata: Any, msg: Any) -> None:
         del client, userdata
@@ -252,7 +252,7 @@ class EC600MQTTAdapter(GatewayAdapter):
         try:
             self._queue.put_nowait(event)
         except asyncio.QueueFull:
-            logger.warning("EC600 MQTT event queue is full, dropping message")
+            logger.warning(f"{self.name} MQTT event queue is full, dropping message")
 
     async def _heartbeat_loop(self) -> None:
         interval = max(5, self.config.heartbeat_interval_seconds)
@@ -478,7 +478,7 @@ class EC600MQTTAdapter(GatewayAdapter):
             replayed += 1
         if replayed:
             logger.info(
-                f"EC600 replayed {replayed} control commands for {device_id} from last_recv_seq={last_recv_seq}"
+                f"{self.name} replayed {replayed} control commands for {device_id} from last_recv_seq={last_recv_seq}"
             )
 
     async def inject_event(self, event: CanonicalEnvelope | dict[str, Any]) -> CanonicalEnvelope:

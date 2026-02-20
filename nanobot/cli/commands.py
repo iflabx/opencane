@@ -1309,11 +1309,23 @@ app.add_typer(hardware_app, name="hardware")
 
 @hardware_app.command("serve")
 def hardware_serve(
-    adapter: str | None = typer.Option(None, "--adapter", help="Adapter override: websocket/mock/ec600"),
+    adapter: str | None = typer.Option(
+        None,
+        "--adapter",
+        help="Adapter override: websocket/mock/ec600/generic_mqtt",
+    ),
     host: str | None = typer.Option(None, "--host", help="Hardware adapter host override"),
     port: int | None = typer.Option(None, "--port", help="Hardware adapter port override"),
-    mqtt_host: str | None = typer.Option(None, "--mqtt-host", help="MQTT broker host override (ec600)"),
-    mqtt_port: int | None = typer.Option(None, "--mqtt-port", help="MQTT broker port override (ec600)"),
+    mqtt_host: str | None = typer.Option(
+        None,
+        "--mqtt-host",
+        help="MQTT broker host override (ec600/generic_mqtt)",
+    ),
+    mqtt_port: int | None = typer.Option(
+        None,
+        "--mqtt-port",
+        help="MQTT broker port override (ec600/generic_mqtt)",
+    ),
     control_port: int | None = typer.Option(None, "--control-port", help="Control API port override"),
     strict_startup: bool | None = typer.Option(
         None,
@@ -1619,13 +1631,15 @@ def hardware_serve(
         f"proactive={'on' if getattr(interaction_policy, 'proactive_enabled', False) else 'off'} "
         f"silent={'on' if getattr(interaction_policy, 'silent_enabled', False) else 'off'}"
     )
-    if config.hardware.adapter.lower() == "ec600":
+    if config.hardware.adapter.lower() in {"ec600", "generic_mqtt"}:
         console.print(
             f"adapter={config.hardware.adapter} mqtt={config.hardware.mqtt.host}:{config.hardware.mqtt.port}"
         )
         console.print(
             f"topics up={config.hardware.mqtt.up_control_topic} audio={config.hardware.mqtt.up_audio_topic}"
         )
+        if config.hardware.adapter.lower() == "generic_mqtt":
+            console.print(f"device_profile={config.hardware.device_profile}")
         console.print(f"tts_mode={config.hardware.tts_mode}")
         console.print(
             f"profile={config.hardware.network_profile} "
