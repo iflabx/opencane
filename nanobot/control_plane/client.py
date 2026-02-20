@@ -52,10 +52,17 @@ class ControlPlaneClient:
                 "success": True,
                 "source": "disabled",
                 "data": dict(self.fallback_runtime_config),
+                "meta": {},
             }
         now = _now_ms()
         if not force_refresh and self._runtime_cache and now <= self._runtime_cache.expires_at_ms:
-            return {"success": True, "source": "cache", "data": dict(self._runtime_cache.value)}
+            cached_data, cached_meta = _normalize_runtime_payload(self._runtime_cache.value)
+            return {
+                "success": True,
+                "source": "cache",
+                "data": cached_data,
+                "meta": cached_meta,
+            }
 
         headers = _auth_headers(self.api_token)
         try:
@@ -65,26 +72,29 @@ class ControlPlaneClient:
                 headers,
                 self.timeout_seconds,
             )
-            data = payload if isinstance(payload, dict) else {}
+            data, meta = _normalize_runtime_payload(payload if isinstance(payload, dict) else {})
             self._runtime_cache = _CacheEntry(
-                value=dict(data),
+                value={"data": dict(data), "meta": dict(meta)},
                 expires_at_ms=now + self.cache_ttl_seconds * 1000,
             )
             self._last_error = ""
-            return {"success": True, "source": "remote", "data": dict(data)}
+            return {"success": True, "source": "remote", "data": dict(data), "meta": dict(meta)}
         except Exception as e:
             self._last_error = str(e)
             if self._runtime_cache:
+                cached_data, cached_meta = _normalize_runtime_payload(self._runtime_cache.value)
                 return {
                     "success": True,
                     "source": "stale_cache",
-                    "data": dict(self._runtime_cache.value),
+                    "data": cached_data,
+                    "meta": cached_meta,
                     "warning": str(e),
                 }
             return {
                 "success": True,
                 "source": "fallback",
                 "data": dict(self.fallback_runtime_config),
+                "meta": {},
                 "warning": str(e),
             }
 
@@ -98,7 +108,7 @@ class ControlPlaneClient:
         now = _now_ms()
         cached = self._device_cache.get(device)
         if not force_refresh and cached and now <= cached.expires_at_ms:
-            return {"success": True, "source": "cache", "data": dict(cached.value)}
+            return {"success": True, "source": "cache", "data": _normalize_device_policy_payload(cached.value)}
 
         headers = _auth_headers(self.api_token)
         try:
@@ -108,7 +118,7 @@ class ControlPlaneClient:
                 headers,
                 self.timeout_seconds,
             )
-            data = payload if isinstance(payload, dict) else {}
+            data = _normalize_device_policy_payload(payload if isinstance(payload, dict) else {})
             self._device_cache[device] = _CacheEntry(
                 value=dict(data),
                 expires_at_ms=now + self.cache_ttl_seconds * 1000,
@@ -121,7 +131,7 @@ class ControlPlaneClient:
                 return {
                     "success": True,
                     "source": "stale_cache",
-                    "data": dict(cached.value),
+                    "data": _normalize_device_policy_payload(cached.value),
                     "warning": str(e),
                 }
             return {"success": False, "error": str(e)}
@@ -169,3 +179,35 @@ def _auth_headers(token: str) -> dict[str, str]:
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
+
+
+def _normalize_runtime_payload(payload: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+    raw = payload if isinstance(payload, dict) else {}
+    data_candidate = raw.get("data")
+    data = data_candidate if isinstance(data_candidate, dict) else dict(raw)
+    meta: dict[str, Any] = {}
+    meta_candidate = raw.get("meta")
+    if not isinstance(meta_candidate, dict):
+        meta_candidate = raw.get("metadata")
+    if isinstance(meta_candidate, dict):
+        meta.update(meta_candidate)
+    for key in (
+        "config_version",
+        "rollout_id",
+        "issued_at",
+        "issued_at_ms",
+        "expires_at",
+        "expires_at_ms",
+        "rollback",
+    ):
+        if key in raw and key not in meta:
+            meta[key] = raw.get(key)
+    return dict(data), dict(meta)
+
+
+def _normalize_device_policy_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    raw = payload if isinstance(payload, dict) else {}
+    data = raw.get("data")
+    if isinstance(data, dict):
+        return dict(data)
+    return dict(raw)

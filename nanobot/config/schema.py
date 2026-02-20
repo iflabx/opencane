@@ -295,6 +295,20 @@ class HardwareAudioConfig(BaseModel):
     vad_silence_chunks: int = 6
 
 
+class HardwareTelemetryConfig(BaseModel):
+    """Telemetry normalization and persistence toggles."""
+
+    normalize_enabled: bool = False
+    persist_samples_enabled: bool = False
+
+
+class HardwareToolResultConfig(BaseModel):
+    """Device tool result event handling toggles."""
+
+    enabled: bool = False
+    mark_device_operation_enabled: bool = True
+
+
 class HardwareConfig(BaseModel):
     """Hardware runtime server configuration."""
 
@@ -317,6 +331,8 @@ class HardwareConfig(BaseModel):
     audio: HardwareAudioConfig = Field(default_factory=HardwareAudioConfig)
     auth: HardwareAuthConfig = Field(default_factory=HardwareAuthConfig)
     mqtt: HardwareMQTTConfig = Field(default_factory=HardwareMQTTConfig)
+    telemetry: HardwareTelemetryConfig = Field(default_factory=HardwareTelemetryConfig)
+    tool_result: HardwareToolResultConfig = Field(default_factory=HardwareToolResultConfig)
     control_plane: ControlPlaneConfig = Field(default_factory=ControlPlaneConfig)
 
     def apply_network_profile(self) -> None:
@@ -353,6 +369,10 @@ class LifelogConfig(BaseModel):
     qdrant_api_key: str = ""
     qdrant_collection: str = "lifelog_semantic"
     qdrant_timeout_seconds: float = 3.0
+    qdrant_vector_size: int = 64
+    embedding_enabled: bool = False
+    embedding_model: str = ""
+    embedding_timeout_seconds: float = 8.0
     image_asset_dir: str = "~/.nanobot/data/lifelog/images"
     image_asset_max_files: int = 5000
     ingest_queue_max_size: int = 64
@@ -362,6 +382,12 @@ class LifelogConfig(BaseModel):
     default_top_k: int = 5
     max_timeline_items: int = 200
     dedup_max_distance: int = 3
+    retention_cleanup_on_startup: bool = False
+    retention_runtime_events_days: int = 30
+    retention_thought_traces_days: int = 30
+    retention_device_sessions_days: int = 30
+    retention_device_operations_days: int = 30
+    retention_telemetry_samples_days: int = 7
 
 
 class DigitalTaskConfig(BaseModel):
