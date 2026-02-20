@@ -63,7 +63,11 @@ class VisionIndexer:
 
     def status_snapshot(self) -> dict[str, Any]:
         mode = str(getattr(self.index, "backend_mode", "unknown"))
-        return {
+        snapshot = {
             "backend_mode": mode,
             "persistent": bool(mode in {"chroma", "qdrant"}),
         }
+        embedding_mode = str(getattr(self.index, "embedding_mode", "")).strip()
+        if embedding_mode:
+            snapshot["embedding_mode"] = embedding_mode
+        return snapshot

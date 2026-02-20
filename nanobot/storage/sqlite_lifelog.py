@@ -17,7 +17,7 @@ def _now_ms() -> int:
 class SQLiteLifelogStore:
     """Small SQLite helper used by P2 lifelog pipeline skeleton."""
 
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, db_path: str | Path) -> None:
         self.db_path = Path(db_path)
@@ -53,6 +53,9 @@ class SQLiteLifelogStore:
             if version < 6:
                 self._migrate_to_v6(cur)
                 version = 6
+            if version < 7:
+                self._migrate_to_v7(cur)
+                version = 7
             if version != self.SCHEMA_VERSION:
                 self._set_user_version(cur, self.SCHEMA_VERSION)
             self._conn.commit()
@@ -258,6 +261,36 @@ class SQLiteLifelogStore:
             "ON thought_traces(source, ts ASC)"
         )
         self._set_user_version(cur, 6)
+
+    def _migrate_to_v7(self, cur: sqlite3.Cursor) -> None:
+        cur.execute(
+            """
+            CREATE TABLE IF NOT EXISTS telemetry_samples (
+              id INTEGER PRIMARY KEY AUTOINCREMENT,
+              device_id TEXT NOT NULL,
+              session_id TEXT NOT NULL,
+              schema_version TEXT NOT NULL,
+              sample_json TEXT NOT NULL,
+              raw_json TEXT NOT NULL,
+              trace_id TEXT NOT NULL,
+              ts INTEGER NOT NULL,
+              created_at_ms INTEGER NOT NULL
+            )
+            """
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_samples_device_ts "
+            "ON telemetry_samples(device_id, ts DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_samples_session_ts "
+            "ON telemetry_samples(session_id, ts DESC)"
+        )
+        cur.execute(
+            "CREATE INDEX IF NOT EXISTS idx_telemetry_samples_trace_ts "
+            "ON telemetry_samples(trace_id, ts DESC)"
+        )
+        self._set_user_version(cur, 7)
 
     def add_event(
         self,
@@ -1016,6 +1049,159 @@ class SQLiteLifelogStore:
             )
         return output
 
+    def add_telemetry_sample(
+        self,
+        *,
+        device_id: str,
+        session_id: str,
+        schema_version: str,
+        sample: dict[str, Any],
+        raw: dict[str, Any] | None = None,
+        trace_id: str = "",
+        ts: int | None = None,
+    ) -> int:
+        now = int(ts or _now_ms())
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(
+                """
+                INSERT INTO telemetry_samples(
+                  device_id, session_id, schema_version, sample_json, raw_json, trace_id, ts, created_at_ms
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    str(device_id or ""),
+                    str(session_id or ""),
+                    str(schema_version or ""),
+                    json.dumps(sample or {}, ensure_ascii=False),
+                    json.dumps(raw or {}, ensure_ascii=False),
+                    str(trace_id or ""),
+                    now,
+                    now,
+                ),
+            )
+            self._conn.commit()
+            return int(cur.lastrowid)
+
+    def list_telemetry_samples(
+        self,
+        *,
+        device_id: str | None = None,
+        session_id: str | None = None,
+        trace_id: str | None = None,
+        start_ts: int | None = None,
+        end_ts: int | None = None,
+        limit: int = 200,
+        offset: int = 0,
+    ) -> list[dict[str, Any]]:
+        where: list[str] = []
+        params: list[Any] = []
+        if device_id:
+            where.append("device_id = ?")
+            params.append(str(device_id))
+        if session_id:
+            where.append("session_id = ?")
+            params.append(str(session_id))
+        if trace_id:
+            where.append("trace_id = ?")
+            params.append(str(trace_id))
+        if start_ts is not None:
+            where.append("ts >= ?")
+            params.append(int(start_ts))
+        if end_ts is not None:
+            where.append("ts <= ?")
+            params.append(int(end_ts))
+        where_sql = f"WHERE {' AND '.join(where)}" if where else ""
+        params.extend([max(1, int(limit)), max(0, int(offset))])
+        sql = f"""
+            SELECT id, device_id, session_id, schema_version, sample_json, raw_json, trace_id, ts, created_at_ms
+            FROM telemetry_samples
+            {where_sql}
+            ORDER BY ts DESC, id DESC
+            LIMIT ? OFFSET ?
+        """
+        with self._lock:
+            cur = self._conn.cursor()
+            cur.execute(sql, params)
+            rows = cur.fetchall()
+        output: list[dict[str, Any]] = []
+        for row in rows:
+            output.append(
+                {
+                    "id": int(row["id"] or 0),
+                    "device_id": str(row["device_id"] or ""),
+                    "session_id": str(row["session_id"] or ""),
+                    "schema_version": str(row["schema_version"] or ""),
+                    "sample": self._json_load(row["sample_json"], default={}),
+                    "raw": self._json_load(row["raw_json"], default={}),
+                    "trace_id": str(row["trace_id"] or ""),
+                    "ts": int(row["ts"] or 0),
+                    "created_at_ms": int(row["created_at_ms"] or 0),
+                }
+            )
+        return output
+
+    def cleanup_retention(
+        self,
+        *,
+        runtime_events_days: int | None = None,
+        thought_traces_days: int | None = None,
+        device_sessions_days: int | None = None,
+        device_operations_days: int | None = None,
+        telemetry_samples_days: int | None = None,
+        now_ms: int | None = None,
+    ) -> dict[str, int]:
+        now = int(now_ms or _now_ms())
+        cuts = {
+            "runtime_events": _retention_cutoff_ms(runtime_events_days, now_ms=now),
+            "thought_traces": _retention_cutoff_ms(thought_traces_days, now_ms=now),
+            "device_sessions": _retention_cutoff_ms(device_sessions_days, now_ms=now),
+            "device_operations": _retention_cutoff_ms(device_operations_days, now_ms=now),
+            "telemetry_samples": _retention_cutoff_ms(telemetry_samples_days, now_ms=now),
+        }
+        deleted = {
+            "runtime_events": 0,
+            "thought_traces": 0,
+            "device_sessions": 0,
+            "device_operations": 0,
+            "telemetry_samples": 0,
+        }
+        with self._lock:
+            cur = self._conn.cursor()
+            if cuts["runtime_events"] is not None:
+                cur.execute(
+                    "DELETE FROM lifelog_events WHERE ts < ?",
+                    (int(cuts["runtime_events"]),),
+                )
+                deleted["runtime_events"] = int(cur.rowcount)
+            if cuts["thought_traces"] is not None:
+                cur.execute(
+                    "DELETE FROM thought_traces WHERE ts < ?",
+                    (int(cuts["thought_traces"]),),
+                )
+                deleted["thought_traces"] = int(cur.rowcount)
+            if cuts["device_sessions"] is not None:
+                cur.execute(
+                    "DELETE FROM device_sessions WHERE state = 'closed' AND updated_at_ms < ?",
+                    (int(cuts["device_sessions"]),),
+                )
+                deleted["device_sessions"] = int(cur.rowcount)
+            if cuts["device_operations"] is not None:
+                cur.execute(
+                    "DELETE FROM device_operations WHERE updated_at_ms < ?",
+                    (int(cuts["device_operations"]),),
+                )
+                deleted["device_operations"] = int(cur.rowcount)
+            if cuts["telemetry_samples"] is not None:
+                cur.execute(
+                    "DELETE FROM telemetry_samples WHERE ts < ?",
+                    (int(cuts["telemetry_samples"]),),
+                )
+                deleted["telemetry_samples"] = int(cur.rowcount)
+            self._conn.commit()
+        return deleted
+
     @staticmethod
     def _row_to_device_operation(row: sqlite3.Row | None) -> dict[str, Any] | None:
         if row is None:
@@ -1077,3 +1263,15 @@ class SQLiteLifelogStore:
             "risk_score": float(row["risk_score"] or 0.0),
             "ts": int(row["ts"] or 0),
         }
+
+
+def _retention_cutoff_ms(days: int | None, *, now_ms: int) -> int | None:
+    if days is None:
+        return None
+    try:
+        value = int(days)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    return int(now_ms - value * 24 * 60 * 60 * 1000)
