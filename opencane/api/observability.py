@@ -27,6 +27,11 @@ def runtime_observability_payload(
     safety_downgrade_rate_max: float,
     device_offline_rate_max: float,
     ingest_queue_utilization_max: float,
+    min_task_total_for_alert: int = 10,
+    min_safety_applied_for_alert: int = 10,
+    min_devices_total_for_alert: int = 1,
+    ingest_rejected_active_queue_depth_min: int = 1,
+    ingest_rejected_active_utilization_min: float = 0.2,
 ) -> dict[str, Any]:
     digital_task = runtime_status.get("digital_task")
     digital = digital_task if isinstance(digital_task, dict) else {}
@@ -107,10 +112,15 @@ def runtime_observability_payload(
         "safety_downgrade_rate_max": float(safety_downgrade_rate_max),
         "device_offline_rate_max": float(device_offline_rate_max),
         "ingest_queue_utilization_max": float(ingest_queue_utilization_max),
+        "min_task_total_for_alert": max(0, int(min_task_total_for_alert)),
+        "min_safety_applied_for_alert": max(0, int(min_safety_applied_for_alert)),
+        "min_devices_total_for_alert": max(0, int(min_devices_total_for_alert)),
+        "ingest_rejected_active_queue_depth_min": max(0, int(ingest_rejected_active_queue_depth_min)),
+        "ingest_rejected_active_utilization_min": max(0.0, float(ingest_rejected_active_utilization_min)),
     }
 
     alerts: list[dict[str, Any]] = []
-    if task_failure_rate > task_failure_rate_max:
+    if task_total >= max(0, int(min_task_total_for_alert)) and task_failure_rate > task_failure_rate_max:
         alerts.append(
             {
                 "metric": "task_failure_rate",
@@ -118,7 +128,7 @@ def runtime_observability_payload(
                 "threshold": float(task_failure_rate_max),
             }
         )
-    if safety_downgrade_rate > safety_downgrade_rate_max:
+    if safety_applied >= max(0, int(min_safety_applied_for_alert)) and safety_downgrade_rate > safety_downgrade_rate_max:
         alerts.append(
             {
                 "metric": "safety_downgrade_rate",
@@ -126,7 +136,7 @@ def runtime_observability_payload(
                 "threshold": float(safety_downgrade_rate_max),
             }
         )
-    if device_offline_rate > device_offline_rate_max:
+    if devices_total >= max(0, int(min_devices_total_for_alert)) and device_offline_rate > device_offline_rate_max:
         alerts.append(
             {
                 "metric": "device_offline_rate",
@@ -142,11 +152,23 @@ def runtime_observability_payload(
                 "threshold": float(ingest_queue_utilization_max),
             }
         )
-    if ingest_rejected_total > 0:
+    queue_active_for_rejected_alert = (
+        ingest_depth >= max(0, int(ingest_rejected_active_queue_depth_min))
+        or ingest_queue_utilization >= max(0.0, float(ingest_rejected_active_utilization_min))
+    )
+    if ingest_rejected_total > 0 and queue_active_for_rejected_alert:
         alerts.append(
             {
                 "metric": "ingest_queue_rejected_total",
                 "value": int(ingest_rejected_total),
+                "threshold": 0,
+            }
+        )
+    if ingest_dropped_total > 0 and queue_active_for_rejected_alert:
+        alerts.append(
+            {
+                "metric": "ingest_queue_dropped_total",
+                "value": int(ingest_dropped_total),
                 "threshold": 0,
             }
         )

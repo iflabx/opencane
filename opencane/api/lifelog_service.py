@@ -41,6 +41,7 @@ class LifelogService:
     OBSERVABILITY_SESSION_ID = "__runtime_observability__"
     OBSERVABILITY_EVENT_TYPE = "runtime_observability"
     _INGEST_SENTINEL: object = object()
+    _REJECT_POLICY_SOFT_WAIT_MAX_MS: int = 50
 
     def __init__(
         self,
@@ -527,12 +528,14 @@ class LifelogService:
             future=future,
         )
         policy = self.ingest_overflow_policy
+        enqueued = False
         if policy == "wait":
             try:
                 await asyncio.wait_for(
                     queue.put(job),
                     timeout=float(self.ingest_enqueue_timeout_ms) / 1000.0,
                 )
+                enqueued = True
             except asyncio.TimeoutError:
                 self._ingest_rejected_total += 1
                 return {
@@ -556,16 +559,35 @@ class LifelogService:
                         }
                     )
             queue.put_nowait(job)
+            enqueued = True
         else:
             if queue.full():
-                self._ingest_rejected_total += 1
-                return {
-                    "success": False,
-                    "error": "ingest queue is full",
-                    "error_code": "queue_full",
-                    "queue": self._ingest_queue_snapshot(),
-                }
-            queue.put_nowait(job)
+                soft_wait_ms = min(self._REJECT_POLICY_SOFT_WAIT_MAX_MS, int(self.ingest_enqueue_timeout_ms))
+                if soft_wait_ms > 0:
+                    try:
+                        await asyncio.wait_for(queue.put(job), timeout=float(soft_wait_ms) / 1000.0)
+                        enqueued = True
+                    except asyncio.TimeoutError:
+                        enqueued = False
+                if not enqueued:
+                    self._ingest_rejected_total += 1
+                    return {
+                        "success": False,
+                        "error": "ingest queue is full",
+                        "error_code": "queue_full",
+                        "queue": self._ingest_queue_snapshot(),
+                    }
+            else:
+                queue.put_nowait(job)
+                enqueued = True
+        if not enqueued:
+            self._ingest_rejected_total += 1
+            return {
+                "success": False,
+                "error": "ingest queue is full",
+                "error_code": "queue_full",
+                "queue": self._ingest_queue_snapshot(),
+            }
         self._ingest_enqueued_total += 1
         self._ingest_max_depth = max(self._ingest_max_depth, int(queue.qsize()))
         return await future

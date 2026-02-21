@@ -170,6 +170,7 @@ class DeviceRuntimeCore:
                 event.device_id,
                 event.session_id,
                 event.seq,
+                persist=self._should_persist_inbound_seq(event.type),
             )
         if not seq_committed and event.type != DeviceEventType.AUDIO_CHUNK:
             self.metrics.record_duplicate_event(event.type)
@@ -194,7 +195,12 @@ class DeviceRuntimeCore:
                 payload={"trace_id": trace_id, "capabilities": event.payload.get("capabilities", {})},
             )
         elif event.type == DeviceEventType.HEARTBEAT:
-            self.sessions.update_state(session.device_id, session.session_id, ConnectionState.READY)
+            self.sessions.update_state(
+                session.device_id,
+                session.session_id,
+                ConnectionState.READY,
+                persist=False,
+            )
             await self._send_ack(session, event.seq, trace_id=trace_id)
         elif event.type == DeviceEventType.LISTEN_START:
             if session.state == ConnectionState.SPEAKING:
@@ -251,7 +257,12 @@ class DeviceRuntimeCore:
             self._spawn(self._process_image_ready(session, event.payload, trace_id=trace_id))
         elif event.type == DeviceEventType.TELEMETRY:
             telemetry = event.payload if isinstance(event.payload, dict) else {}
-            self.sessions.update_telemetry(session.device_id, session.session_id, telemetry)
+            self.sessions.update_telemetry(
+                session.device_id,
+                session.session_id,
+                telemetry,
+                persist=False,
+            )
             telemetry_structured: dict[str, Any] = {}
             if self.telemetry_normalize_enabled:
                 telemetry_structured = normalize_telemetry_payload(telemetry, ts_ms=event.ts)
@@ -265,6 +276,7 @@ class DeviceRuntimeCore:
                                 telemetry_structured.get("schema_version") or ""
                             ),
                         },
+                        persist=False,
                     )
                     await self._persist_telemetry_sample(
                         session,
@@ -415,7 +427,11 @@ class DeviceRuntimeCore:
         command_type: DeviceCommandType,
         payload: dict[str, Any] | None = None,
     ) -> CanonicalEnvelope:
-        seq = self.sessions.next_outbound_seq(session.device_id, session.session_id)
+        seq = self.sessions.next_outbound_seq(
+            session.device_id,
+            session.session_id,
+            persist=self._should_persist_outbound_seq(command_type),
+        )
         return make_command(
             command_type,
             device_id=session.device_id,
@@ -1558,6 +1574,23 @@ class DeviceRuntimeCore:
         if name in {"failed", "timeout"}:
             return "P2"
         return "P3"
+
+    @staticmethod
+    def _should_persist_inbound_seq(event_type: str) -> bool:
+        event_name = str(event_type or "").strip().lower()
+        # audio_chunk/heartbeat are high-frequency and recoverable after reconnect
+        return event_name not in {DeviceEventType.AUDIO_CHUNK.value, DeviceEventType.HEARTBEAT.value}
+
+    @staticmethod
+    def _should_persist_outbound_seq(command_type: str) -> bool:
+        command_name = str(command_type or "").strip().lower()
+        # ack/stt_partial/tts_chunk are high-frequency and do not require strict recovery continuity.
+        noisy_commands = {
+            DeviceCommandType.ACK.value,
+            DeviceCommandType.STT_PARTIAL.value,
+            DeviceCommandType.TTS_CHUNK.value,
+        }
+        return command_name not in noisy_commands
 
     @staticmethod
     def _should_route_to_digital_task(transcript: str, payload: dict[str, Any]) -> bool:

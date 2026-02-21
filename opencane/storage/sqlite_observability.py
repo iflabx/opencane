@@ -8,6 +8,8 @@ import threading
 from pathlib import Path
 from typing import Any
 
+from opencane.storage.sqlite_tuning import SQLiteTuningOptions, apply_sqlite_tuning
+
 _SCHEMA_VERSION = 1
 
 
@@ -20,12 +22,15 @@ class SQLiteObservabilityStore:
         *,
         max_rows: int | None = None,
         trim_every: int = 100,
+        tuning_options: SQLiteTuningOptions | None = None,
     ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        with self._lock:
+            self._tuning_applied = apply_sqlite_tuning(self._conn, options=tuning_options)
         self._max_rows = max_rows if (max_rows is not None and int(max_rows) > 0) else None
         self._trim_every = max(1, int(trim_every))
         self._writes_since_trim = 0

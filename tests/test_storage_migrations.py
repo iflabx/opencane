@@ -19,6 +19,19 @@ def test_sqlite_lifelog_store_sets_user_version(tmp_path) -> None:  # type: igno
         store.close()
 
 
+def test_sqlite_lifelog_store_applies_default_tuning(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    db_path = tmp_path / "lifelog-tuned.db"
+    store = SQLiteLifelogStore(db_path)
+    try:
+        applied = dict(getattr(store, "_tuning_applied", {}))
+        assert int(applied.get("busy_timeout_ms", 0)) >= 5000
+        assert str(applied.get("journal_mode", "")).upper() in {"WAL", "MEMORY"}
+        assert str(applied.get("synchronous", "")).upper() in {"NORMAL", "FULL", "EXTRA", "OFF"}
+        assert str(applied.get("temp_store", "")).upper() in {"DEFAULT", "FILE", "MEMORY"}
+    finally:
+        store.close()
+
+
 def test_sqlite_lifelog_store_migrates_structured_context_columns(tmp_path) -> None:  # type: ignore[no-untyped-def]
     db_path = tmp_path / "lifelog-migrate.db"
     conn = sqlite3.connect(str(db_path))
@@ -127,6 +140,17 @@ def test_sqlite_tasks_store_migrates_timeout_column(tmp_path) -> None:  # type: 
         store.close()
 
 
+def test_sqlite_tasks_store_applies_default_tuning(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    db_path = tmp_path / "tasks-tuned.db"
+    store = SQLiteDigitalTaskStore(db_path)
+    try:
+        applied = dict(getattr(store, "_tuning_applied", {}))
+        assert int(applied.get("busy_timeout_ms", 0)) >= 5000
+        assert str(applied.get("journal_mode", "")).upper() in {"WAL", "MEMORY"}
+    finally:
+        store.close()
+
+
 def test_sqlite_observability_store_persists_samples(tmp_path) -> None:  # type: ignore[no-untyped-def]
     db_path = tmp_path / "observability.db"
     store = SQLiteObservabilityStore(db_path)
@@ -152,6 +176,17 @@ def test_sqlite_observability_store_persists_samples(tmp_path) -> None:  # type:
         assert float(items2[0]["metrics"]["task_failure_rate"]) == 0.1
     finally:
         store2.close()
+
+
+def test_sqlite_observability_store_applies_default_tuning(tmp_path) -> None:  # type: ignore[no-untyped-def]
+    db_path = tmp_path / "observability-tuned.db"
+    store = SQLiteObservabilityStore(db_path)
+    try:
+        applied = dict(getattr(store, "_tuning_applied", {}))
+        assert int(applied.get("busy_timeout_ms", 0)) >= 5000
+        assert str(applied.get("journal_mode", "")).upper() in {"WAL", "MEMORY"}
+    finally:
+        store.close()
 
 
 def test_sqlite_observability_store_trims_to_max_rows(tmp_path) -> None:  # type: ignore[no-untyped-def]

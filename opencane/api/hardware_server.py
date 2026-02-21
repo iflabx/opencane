@@ -57,6 +57,13 @@ def _to_float_query(value: Any, default: float) -> float:
         return float(default)
 
 
+def _to_int_query(value: Any, default: int) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return int(default)
+
+
 def _to_float_value(value: Any, default: float = 0.0) -> float:
     try:
         return float(value)
@@ -681,12 +688,57 @@ class _ControlRequestHandler(BaseHTTPRequestHandler):
             ),
             0.85,
         )
+        min_task_total_for_alert = _to_int_query(
+            _first_query_value(
+                params,
+                "min_task_total_for_alert",
+                "minTaskTotalForAlert",
+            ),
+            10,
+        )
+        min_safety_applied_for_alert = _to_int_query(
+            _first_query_value(
+                params,
+                "min_safety_applied_for_alert",
+                "minSafetyAppliedForAlert",
+            ),
+            10,
+        )
+        min_devices_total_for_alert = _to_int_query(
+            _first_query_value(
+                params,
+                "min_devices_total_for_alert",
+                "minDevicesTotalForAlert",
+            ),
+            1,
+        )
+        ingest_rejected_active_queue_depth_min = _to_int_query(
+            _first_query_value(
+                params,
+                "ingest_rejected_active_queue_depth_min",
+                "ingestRejectedActiveQueueDepthMin",
+            ),
+            1,
+        )
+        ingest_rejected_active_utilization_min = _to_float_query(
+            _first_query_value(
+                params,
+                "ingest_rejected_active_utilization_min",
+                "ingestRejectedActiveUtilizationMin",
+            ),
+            0.2,
+        )
         payload = runtime_observability_payload(
             self.runtime.get_runtime_status(),
             task_failure_rate_max=task_failure_rate_max,
             safety_downgrade_rate_max=safety_downgrade_rate_max,
             device_offline_rate_max=device_offline_rate_max,
             ingest_queue_utilization_max=ingest_queue_utilization_max,
+            min_task_total_for_alert=min_task_total_for_alert,
+            min_safety_applied_for_alert=min_safety_applied_for_alert,
+            min_devices_total_for_alert=min_devices_total_for_alert,
+            ingest_rejected_active_queue_depth_min=ingest_rejected_active_queue_depth_min,
+            ingest_rejected_active_utilization_min=ingest_rejected_active_utilization_min,
         )
         self._record_observability_sample(payload)
         self._send_json(HTTPStatus.OK, payload)

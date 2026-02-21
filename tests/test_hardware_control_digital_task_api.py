@@ -382,6 +382,62 @@ def test_control_api_runtime_observability_endpoint() -> None:
         _stop_loop_thread(loop, thread)
 
 
+def test_control_api_runtime_observability_rejected_alert_requires_active_queue() -> None:
+    loop, thread = _start_loop_thread()
+    port = _free_port()
+    runtime = _FakeRuntime()
+    runtime._status["digital_task"] = {"total": 0, "failed": 0, "timeout": 0, "canceled": 0}
+    runtime._status["safety"] = {"applied": 0, "downgraded": 0}
+    runtime._status["devices"] = []
+    runtime._status["lifelog"]["ingest_queue"] = {
+        "depth": 0,
+        "max_size": 10,
+        "rejected_total": 7,
+        "dropped_total": 0,
+    }
+    server = HardwareControlServer(
+        host="127.0.0.1",
+        port=port,
+        runtime=runtime,  # type: ignore[arg-type]
+        vision=None,
+        lifelog=None,
+        adapter=_FakeAdapter(),  # type: ignore[arg-type]
+        loop=loop,
+        digital_task=_FakeDigitalTaskService(),  # type: ignore[arg-type]
+        auth_enabled=False,
+        auth_token="",
+    )
+    server.start()
+    time.sleep(0.1)
+
+    try:
+        status, data = _get_json(
+            "http://127.0.0.1:"
+            f"{port}/v1/runtime/observability?"
+            "task_failure_rate_max=1&safety_downgrade_rate_max=1&device_offline_rate_max=1"
+            "&ingest_queue_utilization_max=1"
+        )
+        assert status == 200
+        assert data.get("success") is True
+        assert data.get("healthy") is True
+        assert all(alert.get("metric") != "ingest_queue_rejected_total" for alert in data.get("alerts", []))
+
+        runtime._status["lifelog"]["ingest_queue"]["depth"] = 3
+        status, data = _get_json(
+            "http://127.0.0.1:"
+            f"{port}/v1/runtime/observability?"
+            "task_failure_rate_max=1&safety_downgrade_rate_max=1&device_offline_rate_max=1"
+            "&ingest_queue_utilization_max=1"
+        )
+        assert status == 200
+        assert data.get("success") is True
+        assert data.get("healthy") is False
+        assert any(alert.get("metric") == "ingest_queue_rejected_total" for alert in data.get("alerts", []))
+    finally:
+        server.stop()
+        _stop_loop_thread(loop, thread)
+
+
 def test_control_api_observability_history_persists_without_lifelog(tmp_path) -> None:  # type: ignore[no-untyped-def]
     db_path = tmp_path / "observability.db"
     loop, thread = _start_loop_thread()
