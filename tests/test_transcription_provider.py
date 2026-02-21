@@ -1,6 +1,6 @@
 import pytest
 
-from nanobot.providers.transcription import GroqTranscriptionProvider, OpenAITranscriptionProvider
+from opencane.providers.transcription import GroqTranscriptionProvider, OpenAITranscriptionProvider
 
 
 @pytest.mark.asyncio
@@ -47,7 +47,7 @@ async def test_transcribe_bytes_calls_groq_api(monkeypatch: pytest.MonkeyPatch) 
         holder["client"] = client
         return client
 
-    monkeypatch.setattr("nanobot.providers.transcription.httpx.AsyncClient", fake_async_client)
+    monkeypatch.setattr("opencane.providers.transcription.httpx.AsyncClient", fake_async_client)
 
     provider = GroqTranscriptionProvider(api_key="test-key")
     text = await provider.transcribe_bytes(
@@ -85,7 +85,7 @@ async def test_openai_transcription_provider_uses_api_base(monkeypatch: pytest.M
             assert url == "https://openai.example.com/v1/audio/transcriptions"
             return DummyResponse()
 
-    monkeypatch.setattr("nanobot.providers.transcription.httpx.AsyncClient", lambda: DummyClient())
+    monkeypatch.setattr("opencane.providers.transcription.httpx.AsyncClient", lambda: DummyClient())
     provider = OpenAITranscriptionProvider(
         api_key="openai-key",
         api_base="https://openai.example.com",
@@ -120,7 +120,7 @@ async def test_transcription_provider_supports_extra_headers_without_api_key(
             del files, timeout
             return DummyResponse()
 
-    monkeypatch.setattr("nanobot.providers.transcription.httpx.AsyncClient", lambda: DummyClient())
+    monkeypatch.setattr("opencane.providers.transcription.httpx.AsyncClient", lambda: DummyClient())
     provider = OpenAITranscriptionProvider(
         api_key="",
         api_base="https://openai.example.com",

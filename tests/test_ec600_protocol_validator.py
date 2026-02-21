@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from nanobot.hardware.validate_protocol import validate_mapping
+from opencane.hardware.validate_protocol import validate_mapping
 
 
 def _write(path: Path, text: str) -> Path:

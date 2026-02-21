@@ -1,4 +1,4 @@
-from nanobot.config.schema import HardwareConfig
+from opencane.config.schema import HardwareConfig
 
 
 def test_cellular_profile_applies_conservative_defaults() -> None:

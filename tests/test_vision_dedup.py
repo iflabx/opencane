@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nanobot.vision.dedup import compute_image_hash, hamming_distance, is_near_duplicate
+from opencane.vision.dedup import compute_image_hash, hamming_distance, is_near_duplicate
 
 
 def test_compute_image_hash_includes_blake2_fallback() -> None:

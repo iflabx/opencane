@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Merge a deployment profile JSON into nanobot config.json safely."""
+"""Merge a deployment profile JSON into opencane config.json safely."""
 
 from __future__ import annotations
 
@@ -8,8 +8,8 @@ import json
 import sys
 from pathlib import Path
 
-from nanobot.config.loader import get_config_path
-from nanobot.config.profile_merge import (
+from opencane.config.loader import get_config_path
+from opencane.config.profile_merge import (
     backup_config_file,
     load_json_file,
     merge_profile_data,
@@ -20,7 +20,7 @@ from nanobot.config.profile_merge import (
 def _parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
-            "Merge profile JSON into nanobot config.json, validate it, and write canonical output."
+            "Merge profile JSON into opencane config.json, validate it, and write canonical output."
         )
     )
     parser.add_argument(
@@ -31,7 +31,7 @@ def _parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--config",
         default=str(get_config_path()),
-        help="Target nanobot config path (default: ~/.nanobot/config.json)",
+        help="Target opencane config path (default: ~/.opencane/config.json)",
     )
     parser.add_argument(
         "--no-backup",

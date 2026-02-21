@@ -5,10 +5,10 @@ from typing import Any
 
 import pytest
 
-from nanobot.hardware.adapter.mock_adapter import MockAdapter
-from nanobot.hardware.protocol import DeviceEventType, make_event
-from nanobot.hardware.runtime.connection import DeviceRuntimeCore
-from nanobot.hardware.runtime.session_manager import ConnectionState, DeviceSessionManager
+from opencane.hardware.adapter.mock_adapter import MockAdapter
+from opencane.hardware.protocol import DeviceEventType, make_event
+from opencane.hardware.runtime.connection import DeviceRuntimeCore
+from opencane.hardware.runtime.session_manager import ConnectionState, DeviceSessionManager
 
 
 class _FakeSessionStore:

@@ -2,9 +2,9 @@ import asyncio
 
 import pytest
 
-from nanobot.api.digital_task_service import DigitalTaskService
-from nanobot.config.schema import Config
-from nanobot.storage import SQLiteDigitalTaskStore
+from opencane.api.digital_task_service import DigitalTaskService
+from opencane.config.schema import Config
+from opencane.storage import SQLiteDigitalTaskStore
 
 _FINAL = {"success", "failed", "timeout", "canceled"}
 

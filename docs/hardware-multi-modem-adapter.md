@@ -9,10 +9,10 @@
 
 关键代码位置：
 
-- 适配器工厂：`nanobot/api/hardware_server.py` (`create_adapter_from_config`)
-- 通用适配器：`nanobot/hardware/adapter/generic_mqtt_adapter.py`
-- 模组 profile：`nanobot/hardware/adapter/device_profiles.py`
-- 统一协议：`nanobot/hardware/protocol/envelope.py`
+- 适配器工厂：`opencane/api/hardware_server.py` (`create_adapter_from_config`)
+- 通用适配器：`opencane/hardware/adapter/generic_mqtt_adapter.py`
+- 模组 profile：`opencane/hardware/adapter/device_profiles.py`
+- 统一协议：`opencane/hardware/protocol/envelope.py`
 
 数据路径：
 
@@ -64,7 +64,7 @@
 
 1. 配置 `hardware.adapter` 与 `hardware.deviceProfile`。
 2. 设置真实 MQTT 参数（`host/port/username/password/topic`）。
-3. 启动服务：`nanobot hardware serve --adapter generic_mqtt --logs`
+3. 启动服务：`opencane hardware serve --adapter generic_mqtt --logs`
 4. 验证状态：`curl http://127.0.0.1:18792/v1/runtime/status`
 
 ## 6. 兼容性与降级

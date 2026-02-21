@@ -6,7 +6,7 @@ import time
 from urllib import request
 from urllib.error import HTTPError
 
-from nanobot.api.hardware_server import HardwareControlServer
+from opencane.api.hardware_server import HardwareControlServer
 
 
 class _FakeRuntime:

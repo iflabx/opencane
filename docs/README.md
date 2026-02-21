@@ -1,5 +1,12 @@
 # OpenCane Documentation
 
+## 当前状态（2026-02-21）
+
+- 代码包名已完成迁移：`opencane`
+- CLI 主命令：`opencane`（兼容 `nanobot` 别名）
+- 默认数据目录：`~/.opencane`（兼容读取 `~/.nanobot`）
+- 历史文档已归档到本地目录：`../local-docs/nanobot-legacy/`
+
 ## 阅读顺序
 
 1. `overview.md`：先理解项目边界与目标

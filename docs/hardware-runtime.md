@@ -3,7 +3,7 @@
 ## 1. 启动命令
 
 ```bash
-nanobot hardware serve --adapter <mock|websocket|ec600|generic_mqtt> --logs
+opencane hardware serve --adapter <mock|websocket|ec600|generic_mqtt> --logs
 ```
 
 常用参数：
@@ -32,7 +32,7 @@ nanobot hardware serve --adapter <mock|websocket|ec600|generic_mqtt> --logs
 
 ## 3. 启动前检查
 
-1. `nanobot config check --strict` 通过
+1. `opencane config check --strict` 通过
 2. Provider API Key 已配置
 3. MQTT 连接参数正确（EC600 场景）
 4. `hardware.auth.enabled=true` 且 token 已配置（非开发环境）

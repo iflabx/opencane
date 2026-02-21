@@ -9,14 +9,33 @@
 ## 命名与兼容
 
 - 项目名称：OpenCane
-- 代码包名：`nanobot`（暂未改包名）
-- CLI 命令：`nanobot`（暂未改命令）
-- 配置目录：`~/.nanobot`（暂未迁移）
+- 代码包名：`opencane`
+- CLI 命令：`opencane`（兼容 `nanobot` 别名）
+- 配置目录：默认 `~/.opencane`（兼容读取 `~/.nanobot`）
+
+## 迁移完成状态（2026-02-21）
+
+已完成：
+
+- 源码包目录由 `nanobot/` 迁移到 `opencane/`
+- 构建与入口脚本迁移到 `opencane`（保留 CLI 别名 `nanobot`）
+- 文档、脚本、测试用例中的主命令统一为 `opencane`
+
+兼容保留：
+
+- `nanobot` CLI 别名
+- 读取历史数据目录 `~/.nanobot`
+- skill frontmatter 兼容 legacy `nanobot` metadata key
+
+不再兼容：
+
+- `python -m nanobot`
+- `from nanobot...` 导入路径
 
 这意味着：
 
 - 文档中的项目术语统一为 OpenCane
-- 具体执行命令仍使用 `nanobot ...`
+- 建议执行命令使用 `opencane ...`
 
 ## 迁移后的文档分层
 

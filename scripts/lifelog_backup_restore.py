@@ -7,7 +7,7 @@ import argparse
 import json
 import sys
 
-from nanobot.storage import create_lifelog_backup, restore_lifelog_backup
+from opencane.storage import create_lifelog_backup, restore_lifelog_backup
 
 
 def _build_parser() -> argparse.ArgumentParser:

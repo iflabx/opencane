@@ -3,11 +3,11 @@ from typing import Any
 
 import pytest
 
-from nanobot.hardware.adapter.mock_adapter import MockAdapter
-from nanobot.hardware.protocol import DeviceEventType, make_event
-from nanobot.hardware.runtime import DeviceRuntimeCore
-from nanobot.hardware.runtime.session_manager import ConnectionState
-from nanobot.safety.interaction_policy import InteractionPolicy
+from opencane.hardware.adapter.mock_adapter import MockAdapter
+from opencane.hardware.protocol import DeviceEventType, make_event
+from opencane.hardware.runtime import DeviceRuntimeCore
+from opencane.hardware.runtime.session_manager import ConnectionState
+from opencane.safety.interaction_policy import InteractionPolicy
 
 
 class FakeAgentLoop:

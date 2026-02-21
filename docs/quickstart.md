@@ -17,14 +17,16 @@ pip install -e .
 ## 3. 初始化配置
 
 ```bash
-nanobot onboard
+opencane onboard
 ```
+
+如本机已有旧版 `~/.nanobot/config.json`，运行时会自动兼容读取。
 
 生成默认配置后，建议直接应用预设模板：
 
 ```bash
-nanobot config profile apply --profile CONFIG_PROFILE_DEV.json
-nanobot config check --strict
+opencane config profile apply --profile CONFIG_PROFILE_DEV.json
+opencane config check --strict
 ```
 
 ## 4. 最小可运行闭环（无硬件）
@@ -32,7 +34,7 @@ nanobot config check --strict
 启动 mock 适配器：
 
 ```bash
-nanobot hardware serve --adapter mock --logs
+opencane hardware serve --adapter mock --logs
 ```
 
 另开终端做健康检查：
@@ -45,19 +47,19 @@ curl http://127.0.0.1:18792/v1/runtime/observability
 ## 5. 切换到 EC600（联调）
 
 ```bash
-nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
-nanobot config check --strict
-nanobot hardware serve --adapter ec600 --logs
+opencane config profile apply --profile CONFIG_PROFILE_STAGING.json
+opencane config check --strict
+opencane hardware serve --adapter ec600 --logs
 ```
 
 ## 6. 多模组联调（generic_mqtt）
 
 ```bash
-nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
-nanobot hardware serve --adapter generic_mqtt --logs
+opencane config profile apply --profile CONFIG_PROFILE_STAGING.json
+opencane hardware serve --adapter generic_mqtt --logs
 ```
 
-配置示例（`~/.nanobot/config.json`）：
+配置示例（`~/.opencane/config.json`）：
 
 - `hardware.deviceProfile = ec600mcnle_v1 | a7670c_v1 | sim7600g_h_v1 | ec800m_v1 | ml307r_dl_v1`
 - 可选 `hardware.profileOverrides.mqtt.*` 覆盖 topic / qos / keepalive
@@ -70,10 +72,15 @@ nanobot hardware serve --adapter generic_mqtt --logs
 - `hardware.mqtt.password`
 - `hardware.auth.token`
 
+说明：
+
+- `opencane` 为主命令；`nanobot` 作为 CLI 别名可继续使用
+- Python 包导入路径请统一使用 `opencane`
+
 ## 7. 常用调试命令
 
 ```bash
-nanobot status
-nanobot config check --strict
-nanobot hardware serve --adapter mock --logs
+opencane status
+opencane config check --strict
+opencane hardware serve --adapter mock --logs
 ```

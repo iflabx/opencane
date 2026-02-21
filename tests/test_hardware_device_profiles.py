@@ -1,5 +1,5 @@
-from nanobot.config.schema import HardwareMQTTConfig
-from nanobot.hardware.adapter.device_profiles import (
+from opencane.config.schema import HardwareMQTTConfig
+from opencane.hardware.adapter.device_profiles import (
     build_generic_mqtt_runtime,
     list_generic_mqtt_profiles,
     resolve_generic_mqtt_profile,

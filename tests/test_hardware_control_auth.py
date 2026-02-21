@@ -1,7 +1,7 @@
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from http import HTTPStatus
 
-from nanobot.api.hardware_server import _ControlRequestHandler
+from opencane.api.hardware_server import _ControlRequestHandler
 
 
 def test_auth_disabled_allows_request() -> None:

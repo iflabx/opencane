@@ -3,8 +3,8 @@ import base64
 
 import pytest
 
-from nanobot.api.lifelog_service import LifelogService
-from nanobot.config.schema import Config
+from opencane.api.lifelog_service import LifelogService
+from opencane.config.schema import Config
 
 
 class _DummyAnalyzer:
@@ -608,7 +608,7 @@ async def test_lifelog_service_qdrant_backend_init_failure_falls_back(monkeypatc
         def __init__(self, *args, **kwargs):  # type: ignore[no-untyped-def]
             raise RuntimeError("qdrant init failed")
 
-    monkeypatch.setattr("nanobot.api.lifelog_service.QdrantLifelogIndex", _BrokenQdrant)
+    monkeypatch.setattr("opencane.api.lifelog_service.QdrantLifelogIndex", _BrokenQdrant)
 
     config = Config()
     config.lifelog.sqlite_path = str(tmp_path / "lifelog.db")

@@ -1,4 +1,4 @@
-from nanobot.safety.interaction_policy import InteractionPolicy
+from opencane.safety.interaction_policy import InteractionPolicy
 
 
 def test_interaction_policy_adds_emotion_prefix_for_high_risk() -> None:

@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from nanobot.cli.commands import (
+from opencane.cli.commands import (
     _apply_control_plane_runtime_overrides,
     _ControlPlaneRuntimeRefresher,
 )

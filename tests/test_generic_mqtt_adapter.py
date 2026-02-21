@@ -2,13 +2,13 @@ import json
 
 import pytest
 
-from nanobot.config.schema import HardwareMQTTConfig
-from nanobot.hardware.adapter.device_profiles import (
+from opencane.config.schema import HardwareMQTTConfig
+from opencane.hardware.adapter.device_profiles import (
     GenericMQTTDeviceProfile,
     resolve_generic_mqtt_profile,
 )
-from nanobot.hardware.adapter.generic_mqtt_adapter import GenericMQTTAdapter
-from nanobot.hardware.protocol import DeviceCommandType, DeviceEventType, make_command
+from opencane.hardware.adapter.generic_mqtt_adapter import GenericMQTTAdapter
+from opencane.hardware.protocol import DeviceCommandType, DeviceEventType, make_command
 
 
 class _FakePublishResult:

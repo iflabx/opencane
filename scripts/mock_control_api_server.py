@@ -8,7 +8,7 @@ import signal
 import time
 from typing import Any
 
-from nanobot.api.hardware_server import HardwareControlServer
+from opencane.api.hardware_server import HardwareControlServer
 
 
 def _now_ms() -> int:

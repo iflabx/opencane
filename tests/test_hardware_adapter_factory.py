@@ -1,8 +1,8 @@
 import pytest
 
-from nanobot.api.hardware_server import create_adapter_from_config
-from nanobot.config.schema import HardwareConfig
-from nanobot.hardware.adapter import EC600MQTTAdapter, GenericMQTTAdapter
+from opencane.api.hardware_server import create_adapter_from_config
+from opencane.config.schema import HardwareConfig
+from opencane.hardware.adapter import EC600MQTTAdapter, GenericMQTTAdapter
 
 
 def test_create_adapter_from_config_generic_mqtt_profile() -> None:

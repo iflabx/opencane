@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from nanobot.agent.subagent import SubagentManager
-from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider, LLMResponse
+from opencane.agent.subagent import SubagentManager
+from opencane.bus.queue import MessageBus
+from opencane.providers.base import LLMProvider, LLMResponse
 
 
 class _DummyProvider(LLMProvider):

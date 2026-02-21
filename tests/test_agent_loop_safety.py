@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from opencane.agent.loop import AgentLoop
+from opencane.bus.queue import MessageBus
+from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
 class _FakeProvider(LLMProvider):

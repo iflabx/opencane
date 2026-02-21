@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from nanobot.agent.context import ContextBuilder
-from nanobot.agent.memory import UnifiedMemoryProvider
+from opencane.agent.context import ContextBuilder
+from opencane.agent.memory import UnifiedMemoryProvider
 
 
 class _FakeLifelog:

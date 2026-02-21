@@ -6,9 +6,9 @@ import time
 from urllib import request
 from urllib.error import HTTPError
 
-from nanobot.api.hardware_server import HardwareControlServer
-from nanobot.hardware.adapter.mock_adapter import MockAdapter
-from nanobot.hardware.runtime import DeviceRuntimeCore
+from opencane.api.hardware_server import HardwareControlServer
+from opencane.hardware.adapter.mock_adapter import MockAdapter
+from opencane.hardware.runtime import DeviceRuntimeCore
 
 
 class _FakeAgentLoop:

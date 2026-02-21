@@ -32,7 +32,7 @@
       "jitterWindow": 12,
       "vadSilenceChunks": 8
     },
-    "observabilitySqlitePath": "~/.nanobot/data/hardware/observability-staging.db",
+    "observabilitySqlitePath": "~/.opencane/data/hardware/observability-staging.db",
     "observabilityMaxSamples": 8000,
     "auth": {
       "enabled": true,
@@ -43,7 +43,7 @@
       "port": 1883,
       "username": "REPLACE_WITH_STAGING_MQTT_USERNAME",
       "password": "REPLACE_WITH_STAGING_MQTT_PASSWORD",
-      "clientId": "nanobot-hardware-staging",
+      "clientId": "opencane-hardware-staging",
       "keepaliveSeconds": 45,
       "reconnectMinSeconds": 2,
       "reconnectMaxSeconds": 60,
@@ -56,7 +56,7 @@
       "replayEnabled": true,
       "controlReplayWindow": 50,
       "offlineControlBuffer": 100,
-      "heartbeatTopic": "nanobot/hardware/heartbeat",
+      "heartbeatTopic": "opencane/hardware/heartbeat",
       "heartbeatIntervalSeconds": 30,
       "tlsEnabled": false
     }
@@ -66,9 +66,9 @@
   },
   "lifelog": {
     "enabled": true,
-    "sqlitePath": "~/.nanobot/data/lifelog/lifelog-staging.db",
-    "chromaPersistDir": "~/.nanobot/data/lifelog/chroma-staging",
-    "imageAssetDir": "~/.nanobot/data/lifelog/images-staging",
+    "sqlitePath": "~/.opencane/data/lifelog/lifelog-staging.db",
+    "chromaPersistDir": "~/.opencane/data/lifelog/chroma-staging",
+    "imageAssetDir": "~/.opencane/data/lifelog/images-staging",
     "imageAssetMaxFiles": 10000,
     "ingestQueueMaxSize": 128,
     "ingestWorkers": 3,
@@ -78,7 +78,7 @@
   },
   "digitalTask": {
     "enabled": true,
-    "sqlitePath": "~/.nanobot/data/digital_task/tasks-staging.db",
+    "sqlitePath": "~/.opencane/data/digital_task/tasks-staging.db",
     "defaultTimeoutSeconds": 150,
     "maxConcurrentTasks": 2,
     "statusRetryCount": 3,

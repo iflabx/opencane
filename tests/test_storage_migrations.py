@@ -1,8 +1,8 @@
 import sqlite3
 
-from nanobot.storage.sqlite_lifelog import SQLiteLifelogStore
-from nanobot.storage.sqlite_observability import SQLiteObservabilityStore
-from nanobot.storage.sqlite_tasks import SQLiteDigitalTaskStore
+from opencane.storage.sqlite_lifelog import SQLiteLifelogStore
+from opencane.storage.sqlite_observability import SQLiteObservabilityStore
+from opencane.storage.sqlite_tasks import SQLiteDigitalTaskStore
 
 
 def test_sqlite_lifelog_store_sets_user_version(tmp_path) -> None:  # type: ignore[no-untyped-def]

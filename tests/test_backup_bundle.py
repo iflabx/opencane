@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.storage.backup_bundle import create_lifelog_backup, restore_lifelog_backup
+from opencane.storage.backup_bundle import create_lifelog_backup, restore_lifelog_backup
 
 
 def test_lifelog_backup_and_restore_roundtrip(tmp_path: Path) -> None:

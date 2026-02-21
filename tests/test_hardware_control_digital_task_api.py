@@ -6,8 +6,8 @@ import time
 from urllib import request
 from urllib.error import HTTPError
 
-from nanobot.api.hardware_server import HardwareControlServer
-from nanobot.storage.sqlite_observability import SQLiteObservabilityStore
+from opencane.api.hardware_server import HardwareControlServer
+from opencane.storage.sqlite_observability import SQLiteObservabilityStore
 
 
 class _FakeRuntime:
