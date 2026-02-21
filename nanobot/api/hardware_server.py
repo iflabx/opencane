@@ -30,7 +30,14 @@ from nanobot.api.observability import (
 )
 from nanobot.api.vision_server import VisionService, json_response
 from nanobot.config.schema import HardwareConfig
-from nanobot.hardware.adapter import EC600MQTTAdapter, GatewayAdapter, MockAdapter, WebSocketAdapter
+from nanobot.hardware.adapter import (
+    EC600MQTTAdapter,
+    GatewayAdapter,
+    GenericMQTTAdapter,
+    MockAdapter,
+    WebSocketAdapter,
+    build_generic_mqtt_runtime,
+)
 from nanobot.hardware.protocol import CanonicalEnvelope
 from nanobot.hardware.runtime import DeviceRuntimeCore
 
@@ -1281,6 +1288,19 @@ def create_adapter_from_config(config: HardwareConfig) -> GatewayAdapter:
         return MockAdapter()
     if adapter_name == "ec600":
         return EC600MQTTAdapter(config.mqtt, packet_magic=config.packet_magic)
+    if adapter_name == "generic_mqtt":
+        mqtt_config, profile, packet_magic, audio_mode = build_generic_mqtt_runtime(
+            config.mqtt,
+            profile_name=config.device_profile,
+            profile_overrides=config.profile_overrides,
+            fallback_packet_magic=config.packet_magic,
+        )
+        return GenericMQTTAdapter(
+            config=mqtt_config,
+            profile=profile,
+            packet_magic=packet_magic,
+            audio_up_mode=audio_mode,
+        )
     return WebSocketAdapter(
         host=config.host,
         port=config.port,

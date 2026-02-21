@@ -25,8 +25,10 @@ nanobot config check --strict
 ### 2.2 硬件与网络
 
 - `hardware.adapter`
+- `hardware.deviceProfile`（`generic_mqtt` 时生效）
+- `hardware.profileOverrides.*`（按模组覆盖 topic/qos/心跳参数）
 - `hardware.controlHost/controlPort`
-- `hardware.mqtt.*`（EC600）
+- `hardware.mqtt.*`（EC600 / generic_mqtt）
 - `hardware.strictStartup`
 - `hardware.toolResult.enabled`
 - `hardware.telemetry.normalizeEnabled`

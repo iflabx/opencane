@@ -4,7 +4,7 @@
 
 - Python 3.11+
 - 可访问大模型提供方（例如 OpenRouter）
-- 可选：MQTT Broker（EC600 适配场景）
+- 可选：MQTT Broker（EC600 / generic_mqtt 适配场景）
 
 ## 2. 安装
 
@@ -50,6 +50,18 @@ nanobot config check --strict
 nanobot hardware serve --adapter ec600 --logs
 ```
 
+## 6. 多模组联调（generic_mqtt）
+
+```bash
+nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
+nanobot hardware serve --adapter generic_mqtt --logs
+```
+
+配置示例（`~/.nanobot/config.json`）：
+
+- `hardware.deviceProfile = ec600mcnle_v1 | a7670c_v1 | sim7600g_h_v1 | ec800m_v1 | ml307r_dl_v1`
+- 可选 `hardware.profileOverrides.mqtt.*` 覆盖 topic / qos / keepalive
+
 确认以下配置已替换为真实值：
 
 - `providers.openrouter.apiKey`
@@ -58,7 +70,7 @@ nanobot hardware serve --adapter ec600 --logs
 - `hardware.mqtt.password`
 - `hardware.auth.token`
 
-## 6. 常用调试命令
+## 7. 常用调试命令
 
 ```bash
 nanobot status

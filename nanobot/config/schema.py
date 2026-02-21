@@ -1,6 +1,7 @@
 """Configuration schema using Pydantic."""
 
 from pathlib import Path
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 from pydantic_settings import BaseSettings
@@ -313,7 +314,9 @@ class HardwareConfig(BaseModel):
     """Hardware runtime server configuration."""
 
     enabled: bool = False
-    adapter: str = "websocket"  # websocket | mock | ec600
+    adapter: str = "websocket"  # websocket | mock | ec600 | generic_mqtt
+    device_profile: str = "generic_v1"
+    profile_overrides: dict[str, Any] = Field(default_factory=dict)
     tts_mode: str = "device_text"  # device_text | server_audio
     tts_audio_chunk_bytes: int = 1600
     network_profile: str = "cellular"  # cellular | default

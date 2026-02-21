@@ -19,4 +19,6 @@ poetry.lock
 .pytest_cache/
 botpy.log
 tests/__pycache__/
+local-docs/
+local-scripts/
 local-docs/LOCAL_GIT_TIMELINE.md

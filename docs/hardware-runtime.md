@@ -3,14 +3,14 @@
 ## 1. 启动命令
 
 ```bash
-nanobot hardware serve --adapter <mock|websocket|ec600> --logs
+nanobot hardware serve --adapter <mock|websocket|ec600|generic_mqtt> --logs
 ```
 
 常用参数：
 
 - `--adapter`: 覆盖适配器类型
 - `--host` / `--port`: 适配器监听地址
-- `--mqtt-host` / `--mqtt-port`: EC600 MQTT 覆盖
+- `--mqtt-host` / `--mqtt-port`: EC600 / generic_mqtt MQTT 覆盖
 - `--control-port`: 控制 API 端口（默认 18792）
 - `--strict-startup`: 依赖降级时失败退出
 - `--logs`: 打开运行日志
@@ -19,7 +19,16 @@ nanobot hardware serve --adapter <mock|websocket|ec600> --logs
 
 - 本地开发：`mock`
 - 协议联调：`ec600` + staging 配置
-- 上线环境：`ec600` + prod 配置 + 鉴权开启
+- 多模组联调：`generic_mqtt` + `hardware.deviceProfile`（推荐）
+- 上线环境：`ec600` 或 `generic_mqtt` + prod 配置 + 鉴权开启
+
+`generic_mqtt` 内置 profile（v1）：
+
+- `ec600mcnle_v1`
+- `a7670c_v1`
+- `sim7600g_h_v1`
+- `ec800m_v1`
+- `ml307r_dl_v1`
 
 ## 3. 启动前检查
 
