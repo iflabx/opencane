@@ -1,4 +1,4 @@
-"""Helpers for merging deployment profile JSON into nanobot config."""
+"""Helpers for merging deployment profile JSON into OpenCane config."""
 
 from __future__ import annotations
 

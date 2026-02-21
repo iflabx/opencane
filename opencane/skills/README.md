@@ -3,8 +3,8 @@
 This directory contains built-in skills that extend OpenCane's capabilities.
 
 Compatibility note:
-- Package path and CLI command remain `nanobot` for now.
-- Skill metadata may keep legacy `nanobot` keys to preserve runtime compatibility.
+- Package path and primary CLI command are now `opencane`.
+- Skill metadata should use `opencane` key; legacy `nanobot` key is still accepted.
 
 ## Skill Format
 
