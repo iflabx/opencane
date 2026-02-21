@@ -11,8 +11,8 @@
 应用模板：
 
 ```bash
-nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
-nanobot config check --strict
+opencane config profile apply --profile CONFIG_PROFILE_STAGING.json
+opencane config check --strict
 ```
 
 ## 2. 关键配置项

@@ -1,5 +1,5 @@
 """
-Entry point for running nanobot as a module: python -m nanobot
+Entry point for running opencane as a module: python -m opencane
 """
 
 from nanobot.cli.commands import app

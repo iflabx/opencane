@@ -5,7 +5,7 @@
 启动：
 
 ```bash
-nanobot hardware serve --adapter ec600 --logs
+opencane hardware serve --adapter ec600 --logs
 ```
 
 停止：
@@ -26,7 +26,7 @@ nanobot hardware serve --adapter ec600 --logs
 
 排查：
 
-- `nanobot config check --strict`
+- `opencane config check --strict`
 - Provider API key 是否有效
 - MQTT 地址/账号密码是否可达
 

@@ -1,4 +1,4 @@
-"""CLI commands for nanobot."""
+"""CLI commands for OpenCane."""
 
 import asyncio
 import contextlib
@@ -26,8 +26,8 @@ from rich.text import Text
 from nanobot import __logo__, __version__
 
 app = typer.Typer(
-    name="nanobot",
-    help=f"{__logo__} nanobot - Personal AI Assistant",
+    name="opencane",
+    help=f"{__logo__} opencane - Personal AI Assistant",
     no_args_is_help=True,
 )
 
@@ -106,7 +106,7 @@ def _print_agent_response(response: str, render_markdown: bool) -> None:
     content = response or ""
     body = Markdown(content) if render_markdown else Text(content)
     console.print()
-    console.print(f"[cyan]{__logo__} nanobot[/cyan]")
+    console.print(f"[cyan]{__logo__} opencane[/cyan]")
     console.print(body)
     console.print()
 
@@ -138,7 +138,7 @@ async def _read_interactive_input_async() -> str:
 
 def version_callback(value: bool):
     if value:
-        console.print(f"{__logo__} nanobot v{__version__}")
+        console.print(f"{__logo__} opencane v{__version__}")
         raise typer.Exit()
 
 
@@ -148,7 +148,7 @@ def main(
         None, "--version", "-v", callback=version_callback, is_eager=True
     ),
 ):
-    """nanobot - Personal AI Assistant."""
+    """opencane - Personal AI Assistant."""
     pass
 
 
@@ -157,7 +157,7 @@ def main(
 # ============================================================================
 
 
-config_app = typer.Typer(help="Manage nanobot config")
+config_app = typer.Typer(help="Manage opencane config")
 app.add_typer(config_app, name="config")
 
 config_profile_app = typer.Typer(help="Manage deployment profile templates")
@@ -298,7 +298,7 @@ def config_profile_apply(
 
 @app.command()
 def onboard():
-    """Initialize nanobot configuration and workspace."""
+    """Initialize opencane configuration and workspace."""
     from nanobot.config.loader import get_config_path, load_config, save_config
     from nanobot.config.schema import Config
     from nanobot.utils.helpers import get_workspace_path
@@ -331,12 +331,12 @@ def onboard():
     # Create default bootstrap files
     _create_workspace_templates(workspace)
 
-    console.print(f"\n{__logo__} nanobot is ready!")
+    console.print(f"\n{__logo__} opencane is ready!")
     console.print("\nNext steps:")
     console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
-    console.print("  2. Chat: [cyan]nanobot agent -m \"Hello!\"[/cyan]")
-    console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/HKUDS/nanobot#-chat-apps[/dim]")
+    console.print("  2. Chat: [cyan]opencane agent -m \"Hello!\"[/cyan]")
+    console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/iflabx/opencane[/dim]")
 
 
 
@@ -357,7 +357,7 @@ You are a helpful AI assistant. Be concise, accurate, and friendly.
 """,
         "SOUL.md": """# Soul
 
-I am nanobot, a lightweight AI assistant.
+I am OpenCane, a lightweight AI assistant.
 
 ## Personality
 
@@ -696,7 +696,7 @@ def gateway(
     port: int = typer.Option(18790, "--port", "-p", help="Gateway port"),
     verbose: bool = typer.Option(False, "--verbose", "-v", help="Verbose output"),
 ):
-    """Start the nanobot gateway."""
+    """Start the opencane gateway."""
     from nanobot.agent.loop import AgentLoop
     from nanobot.api.lifelog_service import LifelogService
     from nanobot.bus.queue import MessageBus
@@ -712,7 +712,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting nanobot gateway on port {port}...")
+    console.print(f"{__logo__} Starting opencane gateway on port {port}...")
 
     config = load_config()
     safety_policy = SafetyPolicy.from_config(config)
@@ -831,7 +831,7 @@ def agent(
     message: str = typer.Option(None, "--message", "-m", help="Message to send to the agent"),
     session_id: str = typer.Option("cli:direct", "--session", "-s", help="Session ID"),
     markdown: bool = typer.Option(True, "--markdown/--no-markdown", help="Render assistant output as Markdown"),
-    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show nanobot runtime logs during chat"),
+    logs: bool = typer.Option(False, "--logs/--no-logs", help="Show opencane runtime logs during chat"),
 ):
     """Interact with the agent directly."""
     from loguru import logger
@@ -883,7 +883,7 @@ def agent(
             from contextlib import nullcontext
             return nullcontext()
         # Animated spinner is safe to use with prompt_toolkit input handling
-        return console.status("[dim]nanobot is thinking...[/dim]", spinner="dots")
+        return console.status("[dim]opencane is thinking...[/dim]", spinner="dots")
 
     if message:
         # Single message mode
@@ -1048,7 +1048,7 @@ def _get_bridge_dir() -> Path:
 
     if not source:
         console.print("[red]Bridge source not found.[/red]")
-        console.print("Try reinstalling: pip install --force-reinstall nanobot")
+        console.print("Try reinstalling: pip install --force-reinstall opencane-ai")
         raise typer.Exit(1)
 
     console.print(f"{__logo__} Setting up bridge...")
@@ -1266,14 +1266,14 @@ def cron_run(
 
 @app.command()
 def status():
-    """Show nanobot status."""
+    """Show opencane status."""
     from nanobot.config.loader import get_config_path, load_config
 
     config_path = get_config_path()
     config = load_config()
     workspace = config.workspace_path
 
-    console.print(f"{__logo__} nanobot Status\n")
+    console.print(f"{__logo__} opencane Status\n")
 
     console.print(f"Config: {config_path} {'[green]✓[/green]' if config_path.exists() else '[red]✗[/red]'}")
     console.print(f"Workspace: {workspace} {'[green]✓[/green]' if workspace.exists() else '[red]✗[/red]'}")

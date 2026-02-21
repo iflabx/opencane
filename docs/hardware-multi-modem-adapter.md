@@ -64,7 +64,7 @@
 
 1. 配置 `hardware.adapter` 与 `hardware.deviceProfile`。
 2. 设置真实 MQTT 参数（`host/port/username/password/topic`）。
-3. 启动服务：`nanobot hardware serve --adapter generic_mqtt --logs`
+3. 启动服务：`opencane hardware serve --adapter generic_mqtt --logs`
 4. 验证状态：`curl http://127.0.0.1:18792/v1/runtime/status`
 
 ## 6. 兼容性与降级

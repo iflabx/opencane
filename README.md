@@ -2,7 +2,7 @@
 
 OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设备接入 -> 实时对话 -> 图像记忆 -> 数字任务 -> 安全与观测”的完整闭环。
 
-> 当前代码包名和 CLI 命令仍保持兼容：`nanobot`  
+> CLI 主命令为 `opencane`，并兼容 `nanobot` 别名  
 > 项目品牌与产品文档已切换为 OpenCane
 
 ## 核心功能
@@ -35,20 +35,20 @@ pip install -e .
 首次初始化：
 
 ```bash
-nanobot onboard
+opencane onboard
 ```
 
 应用配置模板（建议先用 staging 模板）：
 
 ```bash
-nanobot config profile apply --profile CONFIG_PROFILE_STAGING.json
-nanobot config check --strict
+opencane config profile apply --profile CONFIG_PROFILE_STAGING.json
+opencane config check --strict
 ```
 
 启动硬件运行时（示例）：
 
 ```bash
-nanobot hardware serve --adapter mock --logs
+opencane hardware serve --adapter mock --logs
 ```
 
 ## 文档导航

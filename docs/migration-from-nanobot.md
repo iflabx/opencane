@@ -10,13 +10,13 @@
 
 - 项目名称：OpenCane
 - 代码包名：`nanobot`（暂未改包名）
-- CLI 命令：`nanobot`（暂未改命令）
+- CLI 命令：`opencane`（兼容 `nanobot` 别名）
 - 配置目录：`~/.nanobot`（暂未迁移）
 
 这意味着：
 
 - 文档中的项目术语统一为 OpenCane
-- 具体执行命令仍使用 `nanobot ...`
+- 建议执行命令使用 `opencane ...`
 
 ## 迁移后的文档分层
 
