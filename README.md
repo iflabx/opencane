@@ -7,7 +7,7 @@ OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设�
 
 ## 架构图
 
-![OpenCane 架构图](./opencane-arch.png)
+![OpenCane 架构图](docs/assets/opencane-arch.png)
 
 ## 核心功能
 
