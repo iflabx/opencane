@@ -56,3 +56,8 @@ opencane config check --strict
 - `dev`：mock 适配器、本地数据库
 - `staging`：真实协议联调、严格启动
 - `prod`：鉴权开启、TLS MQTT、容量参数调优
+
+## 4. 环境变量兼容说明
+
+- 当前配置模型仍兼容 `NANOBOT_` 前缀环境变量（用于历史部署平滑迁移）
+- 新部署建议优先使用配置文件（`~/.opencane/config.json`）统一管理

@@ -20,6 +20,8 @@ pip install -e .
 opencane onboard
 ```
 
+如本机已有旧版 `~/.nanobot/config.json`，运行时会自动兼容读取。
+
 生成默认配置后，建议直接应用预设模板：
 
 ```bash
@@ -69,6 +71,11 @@ opencane hardware serve --adapter generic_mqtt --logs
 - `hardware.mqtt.username`
 - `hardware.mqtt.password`
 - `hardware.auth.token`
+
+说明：
+
+- `opencane` 为主命令；`nanobot` 作为 CLI 别名可继续使用
+- Python 包导入路径请统一使用 `opencane`
 
 ## 7. 常用调试命令
 

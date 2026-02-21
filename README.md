@@ -7,7 +7,8 @@ OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设�
 
 ## 核心功能
 
-- 多硬件接入：支持 `mock / websocket / ec600` 适配器统一接入
+- 多硬件接入：支持 `mock / websocket / ec600 / generic_mqtt` 适配器统一接入
+- 多模组适配：`generic_mqtt` 内置 `ec600mcnle_v1 / a7670c_v1 / sim7600g_h_v1 / ec800m_v1 / ml307r_dl_v1`
 - 实时语音链路：支持音频分段、VAD、转写、播报与打断处理
 - 视觉 Lifelog：图像异步入库、语义检索、时间线检索与安全标注
 - 数字任务执行：任务创建、状态查询、取消、离线回推与重试
@@ -66,6 +67,12 @@ opencane hardware serve --adapter mock --logs
 - 安全基线：`docs/security.md`
 - 路线图：`docs/roadmap.md`
 - 迁移说明：`docs/migration-from-nanobot.md`
+
+## 兼容边界
+
+- Python 包与导入路径：使用 `opencane`（不再支持 `from nanobot...`）
+- CLI：主命令 `opencane`，兼容 `nanobot` 别名
+- 数据目录：默认 `~/.opencane`，兼容读取历史 `~/.nanobot`
 
 ## 致谢
 
