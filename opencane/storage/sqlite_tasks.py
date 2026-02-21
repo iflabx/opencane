@@ -9,6 +9,8 @@ import time
 from pathlib import Path
 from typing import Any
 
+from opencane.storage.sqlite_tuning import SQLiteTuningOptions, apply_sqlite_tuning
+
 
 def _now_ms() -> int:
     return int(time.time() * 1000)
@@ -19,12 +21,19 @@ class SQLiteDigitalTaskStore:
 
     SCHEMA_VERSION = 3
 
-    def __init__(self, db_path: str | Path) -> None:
+    def __init__(
+        self,
+        db_path: str | Path,
+        *,
+        tuning_options: SQLiteTuningOptions | None = None,
+    ) -> None:
         self.db_path = Path(db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(self.db_path), check_same_thread=False)
         self._conn.row_factory = sqlite3.Row
         self._lock = threading.Lock()
+        with self._lock:
+            self._tuning_applied = apply_sqlite_tuning(self._conn, options=tuning_options)
         self.init_schema()
 
     def close(self) -> None:

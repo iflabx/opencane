@@ -88,6 +88,8 @@ class DeviceSessionManager:
         device_id: str,
         session_id: str,
         state: ConnectionState,
+        *,
+        persist: bool = True,
     ) -> DeviceSession:
         session = self.get_or_create(device_id, session_id)
         session.state = state
@@ -95,7 +97,8 @@ class DeviceSessionManager:
             session.closed_at_ms = 0
             session.close_reason = ""
         session.touch()
-        self._persist_upsert(session)
+        if persist:
+            self._persist_upsert(session)
         return session
 
     def update_metadata(
@@ -103,11 +106,14 @@ class DeviceSessionManager:
         device_id: str,
         session_id: str,
         metadata: dict[str, Any],
+        *,
+        persist: bool = True,
     ) -> DeviceSession:
         session = self.get_or_create(device_id, session_id)
         session.metadata.update(metadata)
         session.touch()
-        self._persist_upsert(session)
+        if persist:
+            self._persist_upsert(session)
         return session
 
     def update_telemetry(
@@ -115,11 +121,14 @@ class DeviceSessionManager:
         device_id: str,
         session_id: str,
         telemetry: dict[str, Any],
+        *,
+        persist: bool = True,
     ) -> DeviceSession:
         session = self.get_or_create(device_id, session_id)
         session.telemetry.update(telemetry)
         session.touch()
-        self._persist_upsert(session)
+        if persist:
+            self._persist_upsert(session)
         return session
 
     def check_and_commit_seq(
@@ -127,30 +136,38 @@ class DeviceSessionManager:
         device_id: str,
         session_id: str,
         seq: int,
+        *,
+        persist: bool = True,
     ) -> bool:
         """Return True when seq is new enough and commit it."""
         session = self.get_or_create(device_id, session_id)
         session.touch()
         if seq < 0:
-            self._persist_upsert(session)
+            if persist:
+                self._persist_upsert(session)
             return True
         if seq <= session.last_seq:
-            self._persist_upsert(session)
+            if persist:
+                self._persist_upsert(session)
             return False
         session.last_seq = seq
-        self._persist_upsert(session)
+        if persist:
+            self._persist_upsert(session)
         return True
 
     def next_outbound_seq(
         self,
         device_id: str,
         session_id: str,
+        *,
+        persist: bool = True,
     ) -> int:
         """Allocate next outbound sequence for one session."""
         session = self.get_or_create(device_id, session_id)
         session.last_outbound_seq = max(1, session.last_outbound_seq + 1)
         session.touch()
-        self._persist_upsert(session)
+        if persist:
+            self._persist_upsert(session)
         return session.last_outbound_seq
 
     def close(self, device_id: str, session_id: str, reason: str = "closed") -> None:

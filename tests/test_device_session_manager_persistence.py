@@ -54,6 +54,38 @@ def test_device_session_manager_persists_lifecycle_events() -> None:
     assert store.closes[-1]["reason"] == "manual_abort"
 
 
+def test_device_session_manager_supports_non_persistent_seq_updates() -> None:
+    store = _FakeSessionStore()
+    manager = DeviceSessionManager(persistence_store=store)
+    manager.get_or_create("dev-2", "sess-2")
+    baseline_upserts = len(store.upserts)
+
+    assert manager.check_and_commit_seq("dev-2", "sess-2", 3, persist=False) is True
+    assert manager.next_outbound_seq("dev-2", "sess-2", persist=False) == 1
+
+    assert len(store.upserts) == baseline_upserts
+    status = manager.status("dev-2") or {}
+    assert int(status.get("last_seq", -1)) == 3
+    assert int(status.get("last_outbound_seq", 0)) == 1
+
+
+def test_device_session_manager_supports_non_persistent_state_updates() -> None:
+    store = _FakeSessionStore()
+    manager = DeviceSessionManager(persistence_store=store)
+    manager.get_or_create("dev-3", "sess-3")
+    baseline_upserts = len(store.upserts)
+
+    manager.update_state("dev-3", "sess-3", ConnectionState.READY, persist=False)
+    manager.update_telemetry("dev-3", "sess-3", {"battery": 90}, persist=False)
+    manager.update_metadata("dev-3", "sess-3", {"mode": "active"}, persist=False)
+
+    assert len(store.upserts) == baseline_upserts
+    status = manager.status("dev-3") or {}
+    assert status.get("state") == ConnectionState.READY.value
+    assert (status.get("telemetry") or {}).get("battery") == 90
+    assert (status.get("metadata") or {}).get("mode") == "active"
+
+
 @pytest.mark.asyncio
 async def test_runtime_auto_wires_session_persistence_from_lifelog_store() -> None:
     adapter = MockAdapter()
