@@ -4,12 +4,12 @@ from pathlib import Path
 
 import pytest
 
-from nanobot.storage.chroma_lifelog import ChromaLifelogIndex
-from nanobot.vision.image_assets import ImageAssetStore
-from nanobot.vision.indexer import VisionIndexer
-from nanobot.vision.pipeline import VisionLifelogPipeline
-from nanobot.vision.store import VisionLifelogStore
-from nanobot.vision.timeline import LifelogTimelineService
+from opencane.storage.chroma_lifelog import ChromaLifelogIndex
+from opencane.vision.image_assets import ImageAssetStore
+from opencane.vision.indexer import VisionIndexer
+from opencane.vision.pipeline import VisionLifelogPipeline
+from opencane.vision.store import VisionLifelogStore
+from opencane.vision.timeline import LifelogTimelineService
 
 
 class _DummyVisionAnalyzer:

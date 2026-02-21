@@ -8,8 +8,8 @@ import json
 import sys
 from pathlib import Path
 
-from nanobot.config.loader import get_config_path
-from nanobot.config.profile_merge import (
+from opencane.config.loader import get_config_path
+from opencane.config.profile_merge import (
     backup_config_file,
     load_json_file,
     merge_profile_data,

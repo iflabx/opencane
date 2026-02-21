@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from nanobot.config.profile_merge import (
+from opencane.config.profile_merge import (
     backup_config_file,
     deep_merge_dicts,
     merge_profile_data,

@@ -9,10 +9,10 @@
 
 关键代码位置：
 
-- 适配器工厂：`nanobot/api/hardware_server.py` (`create_adapter_from_config`)
-- 通用适配器：`nanobot/hardware/adapter/generic_mqtt_adapter.py`
-- 模组 profile：`nanobot/hardware/adapter/device_profiles.py`
-- 统一协议：`nanobot/hardware/protocol/envelope.py`
+- 适配器工厂：`opencane/api/hardware_server.py` (`create_adapter_from_config`)
+- 通用适配器：`opencane/hardware/adapter/generic_mqtt_adapter.py`
+- 模组 profile：`opencane/hardware/adapter/device_profiles.py`
+- 统一协议：`opencane/hardware/protocol/envelope.py`
 
 数据路径：
 

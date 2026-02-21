@@ -4,8 +4,8 @@ import base64
 
 import pytest
 
-from nanobot.hardware.runtime.audio_pipeline import AudioPipeline
-from nanobot.hardware.runtime.session_manager import DeviceSession
+from opencane.hardware.runtime.audio_pipeline import AudioPipeline
+from opencane.hardware.runtime.session_manager import DeviceSession
 
 
 @pytest.mark.asyncio

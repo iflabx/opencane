@@ -1,7 +1,7 @@
 from typer.testing import CliRunner
 
-from nanobot.cli.commands import app
-from nanobot.config.schema import Config
+from opencane.cli.commands import app
+from opencane.config.schema import Config
 
 runner = CliRunner()
 
@@ -58,11 +58,11 @@ def test_hardware_serve_strict_startup_fails_without_stt(monkeypatch, tmp_path) 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
 
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: cfg)
-    monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda config: object())
-    monkeypatch.setattr("nanobot.agent.loop.AgentLoop", _DummyAgentLoop)
-    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _DummyBus)
-    monkeypatch.setattr("nanobot.session.manager.SessionManager", _DummySessionManager)
+    monkeypatch.setattr("opencane.config.loader.load_config", lambda: cfg)
+    monkeypatch.setattr("opencane.cli.commands._make_provider", lambda config: object())
+    monkeypatch.setattr("opencane.agent.loop.AgentLoop", _DummyAgentLoop)
+    monkeypatch.setattr("opencane.bus.queue.MessageBus", _DummyBus)
+    monkeypatch.setattr("opencane.session.manager.SessionManager", _DummySessionManager)
 
     result = runner.invoke(app, ["hardware", "serve", "--strict-startup"])
 
@@ -81,11 +81,11 @@ def test_hardware_serve_strict_startup_fails_server_audio_without_real_tts(
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
 
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: cfg)
-    monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda config: object())
-    monkeypatch.setattr("nanobot.agent.loop.AgentLoop", _DummyAgentLoop)
-    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _DummyBus)
-    monkeypatch.setattr("nanobot.session.manager.SessionManager", _DummySessionManager)
+    monkeypatch.setattr("opencane.config.loader.load_config", lambda: cfg)
+    monkeypatch.setattr("opencane.cli.commands._make_provider", lambda config: object())
+    monkeypatch.setattr("opencane.agent.loop.AgentLoop", _DummyAgentLoop)
+    monkeypatch.setattr("opencane.bus.queue.MessageBus", _DummyBus)
+    monkeypatch.setattr("opencane.session.manager.SessionManager", _DummySessionManager)
 
     result = runner.invoke(app, ["hardware", "serve", "--strict-startup"])
 
@@ -101,11 +101,11 @@ def test_hardware_serve_passes_max_subagents_from_config(monkeypatch, tmp_path) 
     monkeypatch.delenv("OPENAI_API_KEY", raising=False)
     monkeypatch.delenv("OPENAI_API_BASE", raising=False)
 
-    monkeypatch.setattr("nanobot.config.loader.load_config", lambda: cfg)
-    monkeypatch.setattr("nanobot.cli.commands._make_provider", lambda config: object())
-    monkeypatch.setattr("nanobot.agent.loop.AgentLoop", _CaptureAgentLoop)
-    monkeypatch.setattr("nanobot.bus.queue.MessageBus", _DummyBus)
-    monkeypatch.setattr("nanobot.session.manager.SessionManager", _DummySessionManager)
+    monkeypatch.setattr("opencane.config.loader.load_config", lambda: cfg)
+    monkeypatch.setattr("opencane.cli.commands._make_provider", lambda config: object())
+    monkeypatch.setattr("opencane.agent.loop.AgentLoop", _CaptureAgentLoop)
+    monkeypatch.setattr("opencane.bus.queue.MessageBus", _DummyBus)
+    monkeypatch.setattr("opencane.session.manager.SessionManager", _DummySessionManager)
 
     result = runner.invoke(app, ["hardware", "serve", "--strict-startup"])
 

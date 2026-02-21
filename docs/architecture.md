@@ -2,12 +2,12 @@
 
 ## 1. 分层视图
 
-1. 接入层：`nanobot/hardware/adapter/*`
-2. 运行时层：`nanobot/hardware/runtime/*`
-3. Agent 层：`nanobot/agent/*`
-4. 服务层：`nanobot/api/*`
-5. 数据层：`nanobot/storage/*`
-6. 策略层：`nanobot/safety/*`
+1. 接入层：`opencane/hardware/adapter/*`
+2. 运行时层：`opencane/hardware/runtime/*`
+3. Agent 层：`opencane/agent/*`
+4. 服务层：`opencane/api/*`
+5. 数据层：`opencane/storage/*`
+6. 策略层：`opencane/safety/*`
 
 ## 2. 核心模块职责
 
@@ -41,7 +41,7 @@
 主入口命令：
 
 ```bash
-nanobot hardware serve
+opencane hardware serve
 ```
 
 该入口会组装：

@@ -5,11 +5,11 @@ from typing import Any
 
 import pytest
 
-from nanobot.agent.loop import AgentLoop
-from nanobot.agent.tools.base import Tool
-from nanobot.bus.events import InboundMessage
-from nanobot.bus.queue import MessageBus
-from nanobot.providers.base import LLMProvider, LLMResponse, ToolCallRequest
+from opencane.agent.loop import AgentLoop
+from opencane.agent.tools.base import Tool
+from opencane.bus.events import InboundMessage
+from opencane.bus.queue import MessageBus
+from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
 class _DoubleSpawnProvider(LLMProvider):

@@ -30,24 +30,24 @@ jobs:
       - name: Validate profile templates and config check gate
         run: |
           for p in CONFIG_PROFILE_DEV.json CONFIG_PROFILE_STAGING.json CONFIG_PROFILE_PROD.json; do
-            nanobot config profile apply --profile "${p}" --config /tmp/nanobot-ci-config.json --dry-run
+            opencane config profile apply --profile "${p}" --config /tmp/opencane-ci-config.json --dry-run
           done
-          nanobot config profile apply \
+          opencane config profile apply \
             --profile CONFIG_PROFILE_DEV.json \
-            --config /tmp/nanobot-ci-config.json \
+            --config /tmp/opencane-ci-config.json \
             --no-backup
-          nanobot config check --config /tmp/nanobot-ci-config.json --strict
+          opencane config check --config /tmp/opencane-ci-config.json --strict
 
       - name: Validate EC600 protocol template (draft)
         run: |
-          python -m nanobot.hardware.validate_protocol \
+          python -m opencane.hardware.validate_protocol \
             --mapping local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md \
             --stage draft
 
       - name: Validate EC600 frozen mapping (freeze gate)
         run: |
           if [ -f "EC600_PROTOCOL_MAPPING_V1.md" ]; then
-            python -m nanobot.hardware.validate_protocol \
+            python -m opencane.hardware.validate_protocol \
               --mapping EC600_PROTOCOL_MAPPING_V1.md \
               --stage freeze
           elif grep -q "当前状态：\`Frozen\`" local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md; then

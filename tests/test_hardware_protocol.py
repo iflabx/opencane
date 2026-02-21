@@ -1,4 +1,4 @@
-from nanobot.hardware.protocol.envelope import (
+from opencane.hardware.protocol.envelope import (
     CanonicalEnvelope,
     DeviceCommandType,
     DeviceEventType,

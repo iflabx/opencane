@@ -1,4 +1,4 @@
-from nanobot.safety.policy import SafetyPolicy
+from opencane.safety.policy import SafetyPolicy
 
 
 def test_safety_policy_low_confidence_downgrade() -> None:

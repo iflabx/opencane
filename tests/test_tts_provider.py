@@ -1,6 +1,6 @@
 import pytest
 
-from nanobot.providers.tts import OpenAITTSProvider, ToneTTSSynthesizer
+from opencane.providers.tts import OpenAITTSProvider, ToneTTSSynthesizer
 
 
 @pytest.mark.asyncio
@@ -49,7 +49,7 @@ async def test_openai_tts_provider_calls_api(monkeypatch: pytest.MonkeyPatch) ->
         holder["client"] = client
         return client
 
-    monkeypatch.setattr("nanobot.providers.tts.httpx.AsyncClient", fake_async_client)
+    monkeypatch.setattr("opencane.providers.tts.httpx.AsyncClient", fake_async_client)
     provider = OpenAITTSProvider(
         api_key="k",
         api_base="https://openai.example.com",
@@ -89,7 +89,7 @@ async def test_openai_tts_provider_supports_extra_headers_without_api_key(
             del json, timeout
             return DummyResponse()
 
-    monkeypatch.setattr("nanobot.providers.tts.httpx.AsyncClient", lambda: DummyClient())
+    monkeypatch.setattr("opencane.providers.tts.httpx.AsyncClient", lambda: DummyClient())
     provider = OpenAITTSProvider(
         api_key="",
         api_base="https://openai.example.com",

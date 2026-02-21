@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from nanobot.control_plane import ControlPlaneClient
+from opencane.control_plane import ControlPlaneClient
 
 
 @pytest.mark.asyncio

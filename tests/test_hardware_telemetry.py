@@ -1,4 +1,4 @@
-from nanobot.hardware.runtime.telemetry import normalize_telemetry_payload
+from opencane.hardware.runtime.telemetry import normalize_telemetry_payload
 
 
 def test_normalize_telemetry_payload_extracts_core_fields() -> None:

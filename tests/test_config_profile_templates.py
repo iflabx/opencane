@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from nanobot.config.profile_merge import normalize_config_data
+from opencane.config.profile_merge import normalize_config_data
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 PROFILE_FILES = [

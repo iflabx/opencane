@@ -3,9 +3,9 @@ import json
 
 import pytest
 
-from nanobot.config.schema import HardwareMQTTConfig
-from nanobot.hardware.adapter.ec600_adapter import EC600MQTTAdapter
-from nanobot.hardware.protocol import DeviceCommandType, DeviceEventType, make_command
+from opencane.config.schema import HardwareMQTTConfig
+from opencane.hardware.adapter.ec600_adapter import EC600MQTTAdapter
+from opencane.hardware.protocol import DeviceCommandType, DeviceEventType, make_command
 
 
 def make_adapter(**kwargs):

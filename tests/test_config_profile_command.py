@@ -2,7 +2,7 @@ import json
 
 from typer.testing import CliRunner
 
-from nanobot.cli.commands import app
+from opencane.cli.commands import app
 
 runner = CliRunner()
 

@@ -43,7 +43,7 @@
       "port": 1883,
       "username": "REPLACE_WITH_STAGING_MQTT_USERNAME",
       "password": "REPLACE_WITH_STAGING_MQTT_PASSWORD",
-      "clientId": "nanobot-hardware-staging",
+      "clientId": "opencane-hardware-staging",
       "keepaliveSeconds": 45,
       "reconnectMinSeconds": 2,
       "reconnectMaxSeconds": 60,
@@ -56,7 +56,7 @@
       "replayEnabled": true,
       "controlReplayWindow": 50,
       "offlineControlBuffer": 100,
-      "heartbeatTopic": "nanobot/hardware/heartbeat",
+      "heartbeatTopic": "opencane/hardware/heartbeat",
       "heartbeatIntervalSeconds": 30,
       "tlsEnabled": false
     }

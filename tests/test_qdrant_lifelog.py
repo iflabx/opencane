@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from nanobot.storage.qdrant_lifelog import QdrantLifelogIndex
+from opencane.storage.qdrant_lifelog import QdrantLifelogIndex
 
 
 def test_qdrant_lifelog_index_add_and_query() -> None:

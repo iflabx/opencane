@@ -1,7 +1,7 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `nanobot/`: main application code (agent loop, hardware runtime, APIs, storage, vision, safety, CLI).
+- `opencane/`: main application code (agent loop, hardware runtime, APIs, storage, vision, safety, CLI).
 - `tests/`: unit and integration tests (`test_*.py`), including hardware control/API and storage migration coverage.
 - `docs/`: architecture, deployment, operations, and API references.
 - `scripts/`: utility and smoke-test scripts (replay, control API checks, backup/restore helpers).
@@ -32,7 +32,7 @@
   ```
 - Start hardware runtime locally:
   ```bash
-  nanobot hardware serve --adapter mock --logs
+  opencane hardware serve --adapter mock --logs
   ```
 
 ## Coding Style & Naming Conventions

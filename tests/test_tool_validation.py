@@ -1,7 +1,7 @@
 from typing import Any
 
-from nanobot.agent.tools.base import Tool
-from nanobot.agent.tools.registry import ToolRegistry
+from opencane.agent.tools.base import Tool
+from opencane.agent.tools.registry import ToolRegistry
 
 
 class SampleTool(Tool):

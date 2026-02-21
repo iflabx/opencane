@@ -1,4 +1,4 @@
-from nanobot.api.control_security import (
+from opencane.api.control_security import (
     RequestRateLimiter,
     RequestReplayProtector,
     parse_timestamp_ms,
