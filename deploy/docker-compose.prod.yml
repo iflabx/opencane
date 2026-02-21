@@ -1,0 +1,44 @@
+name: opencane
+
+services:
+  runtime:
+    image: iflabx/opencane:latest
+    container_name: opencane-runtime
+    restart: unless-stopped
+    command: ["hardware", "serve", "--adapter", "generic_mqtt", "--logs"]
+
+    # Keep secrets out of repo. Put real values in /srv/opencane/runtime.env.
+    env_file:
+      - /srv/opencane/runtime.env
+    environment:
+      # Keep control API reachable from reverse proxy or LAN only.
+      - NANOBOT_HARDWARE__CONTROL_HOST=0.0.0.0
+      - NANOBOT_HARDWARE__CONTROL_PORT=18792
+      - NANOBOT_HARDWARE__AUTH__ENABLED=true
+      - NANOBOT_HARDWARE__AUTH__DEVICE_AUTH_ENABLED=true
+      - NANOBOT_HARDWARE__ADAPTER=generic_mqtt
+
+    # Externalize all state. Container stays stateless.
+    volumes:
+      - /srv/opencane/config/config.json:/root/.opencane/config.json:ro
+      - /srv/opencane/workspace:/root/.opencane/workspace
+      - /srv/opencane/data:/root/.opencane/data
+
+    # Expose only on localhost by default; put nginx/caddy in front if needed.
+    ports:
+      - "127.0.0.1:18792:18792"
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:18792/v1/runtime/status >/dev/null || exit 1"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+    stop_grace_period: 30s
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
