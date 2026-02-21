@@ -61,3 +61,37 @@ opencane config check --strict
 
 - 当前配置模型仍兼容 `NANOBOT_` 前缀环境变量（用于历史部署平滑迁移）
 - 新部署建议优先使用配置文件（`~/.opencane/config.json`）统一管理
+
+## 5. 真实硬件生产 Docker（单容器）
+
+推荐模式：
+
+- 单容器运行 `opencane hardware serve`
+- 配置、数据、工作区全部外置到宿主机
+- 控制 API 仅内网暴露 + token 鉴权
+
+已提供模板：
+
+- Compose：`deploy/docker-compose.prod.yml`
+- 环境变量模板：`deploy/runtime.env.example`
+- 落地步骤：`deploy/README.md`
+
+核心外置目录（示例）：
+
+- `/srv/opencane/config/config.json`
+- `/srv/opencane/workspace`
+- `/srv/opencane/data`
+- `/srv/opencane/runtime.env`
+
+启动：
+
+```bash
+docker compose -f deploy/docker-compose.prod.yml up -d
+```
+
+健康检查：
+
+```bash
+curl http://127.0.0.1:18792/v1/runtime/status
+curl http://127.0.0.1:18792/v1/runtime/observability
+```
