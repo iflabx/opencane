@@ -9,7 +9,7 @@
 ## 命名与兼容
 
 - 项目名称：OpenCane
-- 代码包名：`nanobot`（暂未改包名）
+- 代码包名：`opencane`
 - CLI 命令：`opencane`（兼容 `nanobot` 别名）
 - 配置目录：默认 `~/.opencane`（兼容读取 `~/.nanobot`）
 

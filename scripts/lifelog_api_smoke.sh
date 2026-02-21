@@ -18,7 +18,7 @@ if [[ -n "${AUTH_TOKEN}" ]]; then
   curl_opts+=(-H "Authorization: Bearer ${AUTH_TOKEN}")
 fi
 
-image_b64="$(printf 'nanobot-lifelog-smoke-image' | base64 | tr -d '\n')"
+image_b64="$(printf 'opencane-lifelog-smoke-image' | base64 | tr -d '\n')"
 
 echo
 echo "== enqueue_image =="

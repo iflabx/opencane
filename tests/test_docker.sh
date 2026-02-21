@@ -2,19 +2,19 @@
 set -euo pipefail
 cd "$(dirname "$0")/.." || exit 1
 
-IMAGE_NAME="nanobot-test"
+IMAGE_NAME="opencane-test"
 
 echo "=== Building Docker image ==="
 docker build -t "$IMAGE_NAME" .
 
 echo ""
 echo "=== Running 'opencane onboard' ==="
-docker run --name nanobot-test-run "$IMAGE_NAME" onboard
+docker run --name opencane-test-run "$IMAGE_NAME" onboard
 
 echo ""
 echo "=== Running 'opencane status' ==="
-STATUS_OUTPUT=$(docker commit nanobot-test-run nanobot-test-onboarded > /dev/null && \
-    docker run --rm nanobot-test-onboarded status 2>&1) || true
+STATUS_OUTPUT=$(docker commit opencane-test-run opencane-test-onboarded > /dev/null && \
+    docker run --rm opencane-test-onboarded status 2>&1) || true
 
 echo "$STATUS_OUTPUT"
 
@@ -50,7 +50,7 @@ fi
 # Cleanup
 echo ""
 echo "=== Cleanup ==="
-docker rm -f nanobot-test-run 2>/dev/null || true
-docker rmi -f nanobot-test-onboarded 2>/dev/null || true
+docker rm -f opencane-test-run 2>/dev/null || true
+docker rmi -f opencane-test-onboarded 2>/dev/null || true
 docker rmi -f "$IMAGE_NAME" 2>/dev/null || true
 echo "Done."
