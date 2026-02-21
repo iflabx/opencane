@@ -11,7 +11,7 @@
 - 项目名称：OpenCane
 - 代码包名：`nanobot`（暂未改包名）
 - CLI 命令：`opencane`（兼容 `nanobot` 别名）
-- 配置目录：`~/.nanobot`（暂未迁移）
+- 配置目录：默认 `~/.opencane`（兼容读取 `~/.nanobot`）
 
 这意味着：
 

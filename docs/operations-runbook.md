@@ -75,8 +75,8 @@ curl -X POST http://127.0.0.1:18792/v1/lifelog/retention/cleanup \
 
 ```bash
 python scripts/lifelog_backup_restore.py backup \
-  --sqlite ~/.nanobot/data/lifelog/lifelog.db \
-  --images ~/.nanobot/data/lifelog/images \
+  --sqlite ~/.opencane/data/lifelog/lifelog.db \
+  --images ~/.opencane/data/lifelog/images \
   --out ./lifelog-backup-$(date +%Y%m%d).tar.gz
 ```
 
@@ -85,6 +85,6 @@ python scripts/lifelog_backup_restore.py backup \
 ```bash
 python scripts/lifelog_backup_restore.py restore \
   --archive ./lifelog-backup-20260220.tar.gz \
-  --dest ~/.nanobot/restore/lifelog \
+  --dest ~/.opencane/restore/lifelog \
   --overwrite
 ```

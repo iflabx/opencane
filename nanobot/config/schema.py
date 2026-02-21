@@ -159,7 +159,7 @@ class ChannelsConfig(BaseModel):
 
 class AgentDefaults(BaseModel):
     """Default agent configuration."""
-    workspace: str = "~/.nanobot/workspace"
+    workspace: str = "~/.opencane/workspace"
     model: str = "anthropic/claude-opus-4-5"
     max_tokens: int = 8192
     temperature: float = 0.7
@@ -328,7 +328,7 @@ class HardwareConfig(BaseModel):
     control_port: int = 18792
     control_max_body_bytes: int = 12 * 1024 * 1024
     heartbeat_seconds: int = 20
-    observability_sqlite_path: str = "~/.nanobot/data/hardware/observability.db"
+    observability_sqlite_path: str = "~/.opencane/data/hardware/observability.db"
     observability_max_samples: int = 4000
     packet_magic: int = 161  # 0xA1
     audio: HardwareAudioConfig = Field(default_factory=HardwareAudioConfig)
@@ -365,8 +365,8 @@ class LifelogConfig(BaseModel):
     """Lifelog storage and retrieval configuration."""
 
     enabled: bool = True
-    sqlite_path: str = "~/.nanobot/data/lifelog/lifelog.db"
-    chroma_persist_dir: str = "~/.nanobot/data/lifelog/chroma"
+    sqlite_path: str = "~/.opencane/data/lifelog/lifelog.db"
+    chroma_persist_dir: str = "~/.opencane/data/lifelog/chroma"
     vector_backend: str = "chroma"  # chroma | qdrant
     qdrant_url: str = ""
     qdrant_api_key: str = ""
@@ -376,7 +376,7 @@ class LifelogConfig(BaseModel):
     embedding_enabled: bool = False
     embedding_model: str = ""
     embedding_timeout_seconds: float = 8.0
-    image_asset_dir: str = "~/.nanobot/data/lifelog/images"
+    image_asset_dir: str = "~/.opencane/data/lifelog/images"
     image_asset_max_files: int = 5000
     ingest_queue_max_size: int = 64
     ingest_workers: int = 2
@@ -397,7 +397,7 @@ class DigitalTaskConfig(BaseModel):
     """Digital task execution configuration."""
 
     enabled: bool = True
-    sqlite_path: str = "~/.nanobot/data/digital_task/tasks.db"
+    sqlite_path: str = "~/.opencane/data/digital_task/tasks.db"
     default_timeout_seconds: int = 120
     max_concurrent_tasks: int = 2
     status_retry_count: int = 2

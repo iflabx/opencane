@@ -57,7 +57,7 @@ opencane config profile apply --profile CONFIG_PROFILE_STAGING.json
 opencane hardware serve --adapter generic_mqtt --logs
 ```
 
-配置示例（`~/.nanobot/config.json`）：
+配置示例（`~/.opencane/config.json`）：
 
 - `hardware.deviceProfile = ec600mcnle_v1 | a7670c_v1 | sim7600g_h_v1 | ec800m_v1 | ml307r_dl_v1`
 - 可选 `hardware.profileOverrides.mqtt.*` 覆盖 topic / qos / keepalive

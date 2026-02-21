@@ -1,7 +1,11 @@
-"""Utility functions for nanobot."""
+"""Utility functions for OpenCane runtime paths and helpers."""
 
+import os
 from datetime import datetime
 from pathlib import Path
+
+PRIMARY_DATA_DIR_NAME = ".opencane"
+LEGACY_DATA_DIR_NAME = ".nanobot"
 
 
 def ensure_dir(path: Path) -> Path:
@@ -10,9 +14,39 @@ def ensure_dir(path: Path) -> Path:
     return path
 
 
+def get_primary_data_path() -> Path:
+    """Return the preferred OpenCane data root."""
+    return Path.home() / PRIMARY_DATA_DIR_NAME
+
+
+def get_legacy_data_path() -> Path:
+    """Return legacy nanobot data root."""
+    return Path.home() / LEGACY_DATA_DIR_NAME
+
+
 def get_data_path() -> Path:
-    """Get the nanobot data directory (~/.nanobot)."""
-    return ensure_dir(Path.home() / ".nanobot")
+    """
+    Get the runtime data directory.
+
+    Priority:
+    1. `OPENCANE_DATA_DIR` env override
+    2. Existing `~/.opencane`
+    3. Existing legacy `~/.nanobot`
+    4. Create and use `~/.opencane`
+    """
+    env_path = str(os.environ.get("OPENCANE_DATA_DIR") or "").strip()
+    if env_path:
+        return ensure_dir(Path(env_path).expanduser())
+
+    primary = get_primary_data_path()
+    if primary.exists():
+        return ensure_dir(primary)
+
+    legacy = get_legacy_data_path()
+    if legacy.exists():
+        return ensure_dir(legacy)
+
+    return ensure_dir(primary)
 
 
 def get_workspace_path(workspace: str | None = None) -> Path:
@@ -20,7 +54,8 @@ def get_workspace_path(workspace: str | None = None) -> Path:
     Get the workspace path.
 
     Args:
-        workspace: Optional workspace path. Defaults to ~/.nanobot/workspace.
+        workspace: Optional workspace path. Defaults to ~/.opencane/workspace
+            (fallback to existing ~/.nanobot workspace if primary path missing).
 
     Returns:
         Expanded and ensured workspace path.
@@ -28,7 +63,7 @@ def get_workspace_path(workspace: str | None = None) -> Path:
     if workspace:
         path = Path(workspace).expanduser()
     else:
-        path = Path.home() / ".nanobot" / "workspace"
+        path = get_data_path() / "workspace"
     return ensure_dir(path)
 
 

@@ -24,6 +24,7 @@ from rich.table import Table
 from rich.text import Text
 
 from nanobot import __logo__, __version__
+from nanobot.utils.helpers import get_data_path
 
 app = typer.Typer(
     name="opencane",
@@ -91,7 +92,7 @@ def _init_prompt_session() -> None:
     except Exception:
         pass
 
-    history_file = Path.home() / ".nanobot" / "history" / "cli_history"
+    history_file = get_data_path() / "history" / "cli_history"
     history_file.parent.mkdir(parents=True, exist_ok=True)
 
     _PROMPT_SESSION = PromptSession(
@@ -333,7 +334,7 @@ def onboard():
 
     console.print(f"\n{__logo__} opencane is ready!")
     console.print("\nNext steps:")
-    console.print("  1. Add your API key to [cyan]~/.nanobot/config.json[/cyan]")
+    console.print("  1. Add your API key to [cyan]~/.opencane/config.json[/cyan]")
     console.print("     Get one at: https://openrouter.ai/keys")
     console.print("  2. Chat: [cyan]opencane agent -m \"Hello!\"[/cyan]")
     console.print("\n[dim]Want Telegram/WhatsApp? See: https://github.com/iflabx/opencane[/dim]")
@@ -429,7 +430,7 @@ def _make_provider(config):
     model = config.agents.defaults.model
     if not (p and p.api_key) and not model.startswith("bedrock/"):
         console.print("[red]Error: No API key configured.[/red]")
-        console.print("Set one in ~/.nanobot/config.json under providers section")
+        console.print("Set one in ~/.opencane/config.json under providers section")
         raise typer.Exit(1)
     return LiteLLMProvider(
         api_key=p.api_key if p else None,
@@ -1025,7 +1026,7 @@ def _get_bridge_dir() -> Path:
     import subprocess
 
     # User's bridge location
-    user_bridge = Path.home() / ".nanobot" / "bridge"
+    user_bridge = get_data_path() / "bridge"
 
     # Check if already built
     if (user_bridge / "dist" / "index.js").exists():

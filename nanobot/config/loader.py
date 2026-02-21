@@ -5,15 +5,34 @@ from pathlib import Path
 from typing import Any
 
 from nanobot.config.schema import Config
+from nanobot.utils.helpers import get_legacy_data_path, get_primary_data_path
 
 
 def get_config_path() -> Path:
-    """Get the default configuration file path."""
-    return Path.home() / ".nanobot" / "config.json"
+    """
+    Resolve configuration path with backward compatibility.
+
+    Preference:
+    1. Existing `~/.opencane/config.json`
+    2. Existing legacy `~/.nanobot/config.json`
+    3. New `~/.opencane/config.json`
+    """
+    primary = get_primary_data_path() / "config.json"
+    legacy = get_legacy_data_path() / "config.json"
+    if primary.exists():
+        return primary
+    if legacy.exists():
+        return legacy
+    return primary
+
+
+def get_primary_config_path() -> Path:
+    """Get preferred write path for config."""
+    return get_primary_data_path() / "config.json"
 
 
 def get_data_dir() -> Path:
-    """Get the nanobot data directory."""
+    """Get the OpenCane data directory."""
     from nanobot.utils.helpers import get_data_path
     return get_data_path()
 
@@ -51,7 +70,7 @@ def save_config(config: Config, config_path: Path | None = None) -> None:
         config: Configuration to save.
         config_path: Optional path to save to. Uses default if not provided.
     """
-    path = config_path or get_config_path()
+    path = config_path or get_primary_config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
 
     # Convert to camelCase format

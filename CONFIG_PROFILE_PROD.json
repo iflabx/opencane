@@ -32,7 +32,7 @@
       "jitterWindow": 12,
       "vadSilenceChunks": 8
     },
-    "observabilitySqlitePath": "~/.nanobot/data/hardware/observability-prod.db",
+    "observabilitySqlitePath": "~/.opencane/data/hardware/observability-prod.db",
     "observabilityMaxSamples": 12000,
     "auth": {
       "enabled": true,
@@ -66,9 +66,9 @@
   },
   "lifelog": {
     "enabled": true,
-    "sqlitePath": "~/.nanobot/data/lifelog/lifelog-prod.db",
-    "chromaPersistDir": "~/.nanobot/data/lifelog/chroma-prod",
-    "imageAssetDir": "~/.nanobot/data/lifelog/images-prod",
+    "sqlitePath": "~/.opencane/data/lifelog/lifelog-prod.db",
+    "chromaPersistDir": "~/.opencane/data/lifelog/chroma-prod",
+    "imageAssetDir": "~/.opencane/data/lifelog/images-prod",
     "imageAssetMaxFiles": 50000,
     "ingestQueueMaxSize": 256,
     "ingestWorkers": 4,
@@ -78,7 +78,7 @@
   },
   "digitalTask": {
     "enabled": true,
-    "sqlitePath": "~/.nanobot/data/digital_task/tasks-prod.db",
+    "sqlitePath": "~/.opencane/data/digital_task/tasks-prod.db",
     "defaultTimeoutSeconds": 180,
     "maxConcurrentTasks": 4,
     "statusRetryCount": 5,
