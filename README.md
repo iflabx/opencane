@@ -9,6 +9,14 @@ Language: English | [切换到简体中文](#简体中文)
 OpenCane is an AI backend runtime for smart-cane scenarios, focused on an end-to-end loop:
 device connectivity -> realtime conversation -> visual lifelog -> digital tasks -> safety and observability.
 
+### Product Snapshot
+
+- Product goal: build an OpenClaw experience for visually impaired users
+- Interaction carrier: smart-cane hardware
+- Human-device interaction: voice + buttons (input), voice + vibration (feedback)
+- Core loop: hardware access -> realtime conversation -> visual memory -> digital tasks -> safety/observability
+- Runtime form: backend service with control APIs and multi-modem adapter layer
+
 ### Architecture
 
 ![OpenCane Architecture](docs/assets/opencane-arch.png)
@@ -21,6 +29,16 @@ device connectivity -> realtime conversation -> visual lifelog -> digital tasks 
 - Visual lifelog: async image ingestion, semantic retrieval, timeline retrieval, and safety annotations
 - Digital task execution: create, query, cancel, offline pushback, and retry
 - Control APIs: device registration/binding, operation dispatch, and runtime status queries
+
+### Functional Scenarios
+
+- On-the-go voice assistance: press-to-talk interaction for quick answers while walking.
+- Forward risk check: photo + voice queries to identify nearby obstacles and hazards.
+- Short-term memory recall: ask about recent moments via timeline and semantic retrieval.
+- Digital task delegation: turn voice intents into trackable tasks with status updates.
+- Device health and offline alerts: detect heartbeat/connection anomalies and notify users.
+- Emergency help trigger (SOS): minimal-action emergency trigger with immediate confirmation.
+- Digital Journal (emotion-first): multimodal models understand daily photo sequences and voice context to form long-term memory; it can be replayed with personalized, podcast-like narration and shared as text with family and friends.
 
 ### Technical Highlights
 
@@ -95,6 +113,14 @@ Thanks to HKUDS for the original engineering base.
 
 OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设备接入 -> 实时对话 -> 图像记忆 -> 数字任务 -> 安全与观测”的完整闭环。
 
+### 产品功能摘要
+
+- 产品目标：打造“给视障人士使用的 OpenClaw”
+- 交互载体：智能盲杖硬件
+- 人机交互：语音 + 按钮输入，语音 + 震动反馈
+- 核心闭环：设备接入 -> 实时对话 -> 图像记忆 -> 数字任务 -> 安全与观测
+- 系统形态：后端运行时 + 控制 API + 多蜂窝模组适配层
+
 ### 架构图
 
 ![OpenCane 架构图](docs/assets/opencane-arch.png)
@@ -107,6 +133,16 @@ OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设�
 - 视觉 Lifelog：图像异步入库、语义检索、时间线检索与安全标注
 - 数字任务执行：任务创建、状态查询、取消、离线回推与重试
 - 控制面 API：设备注册绑定、设备指令下发、运行状态查询
+
+### 功能场景
+
+- 行走中即时问答：按键触发语音提问，低延迟语音回复，不打断通行节奏。
+- 前方风险确认：拍照 + 语音询问，识别附近障碍与风险并给出提示。
+- 短时记忆回溯：支持“刚才发生了什么”的时间线与语义检索回答。
+- 数字任务代办：将语音需求转成可追踪任务，并持续回报状态。
+- 设备异常与离线提醒：心跳或连接异常时及时告警，恢复后可继续会话。
+- 紧急求助触发（SOS）：通过最少动作触发求助，并立即得到确认反馈。
+- 数字日记（情感优先）：多模态大模型理解每天的照片序列与语音形成长期记忆；可用个性化语音像播客一样回放，也可生成文本分享给亲人朋友。
 
 ### 技术特性
 
