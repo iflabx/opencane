@@ -9,6 +9,14 @@ Language: English | [切换到简体中文](#简体中文)
 OpenCane is an AI backend runtime for smart-cane scenarios, focused on an end-to-end loop:
 device connectivity -> realtime conversation -> visual lifelog -> digital tasks -> safety and observability.
 
+### Product Snapshot
+
+- Product goal: build an OpenClaw experience for visually impaired users
+- Interaction carrier: smart-cane hardware
+- Human-device interaction: voice + buttons (input), voice + vibration (feedback)
+- Core loop: hardware access -> realtime conversation -> visual memory -> digital tasks -> safety/observability
+- Runtime form: backend service with control APIs and multi-modem adapter layer
+
 ### Architecture
 
 ![OpenCane Architecture](docs/assets/opencane-arch.png)
@@ -94,6 +102,14 @@ Thanks to HKUDS for the original engineering base.
 语言：简体中文 | [Switch to English](#english)
 
 OpenCane 是一个面向智能盲杖场景的 AI 后端运行时，聚焦“设备接入 -> 实时对话 -> 图像记忆 -> 数字任务 -> 安全与观测”的完整闭环。
+
+### 产品功能摘要
+
+- 产品目标：打造“给视障人士使用的 OpenClaw”
+- 交互载体：智能盲杖硬件
+- 人机交互：语音 + 按钮输入，语音 + 震动反馈
+- 核心闭环：设备接入 -> 实时对话 -> 图像记忆 -> 数字任务 -> 安全与观测
+- 系统形态：后端运行时 + 控制 API + 多蜂窝模组适配层
 
 ### 架构图
 
