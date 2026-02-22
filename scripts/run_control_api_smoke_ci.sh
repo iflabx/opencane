@@ -4,7 +4,7 @@ set -euo pipefail
 CONTROL_API_HOST="${CONTROL_API_HOST:-127.0.0.1}"
 CONTROL_API_PORT="${CONTROL_API_PORT:-18792}"
 CONTROL_API_BASE="http://${CONTROL_API_HOST}:${CONTROL_API_PORT}"
-SERVER_LOG="${SERVER_LOG:-/tmp/nanobot_mock_control_api.log}"
+SERVER_LOG="${SERVER_LOG:-/tmp/opencane_mock_control_api.log}"
 
 echo "starting mock control api server at ${CONTROL_API_BASE}"
 python3 scripts/mock_control_api_server.py \

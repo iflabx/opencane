@@ -3,9 +3,9 @@
 ## 当前状态（2026-02-21）
 
 - 代码包名已完成迁移：`opencane`
-- CLI 主命令：`opencane`（兼容 `nanobot` 别名）
-- 默认数据目录：`~/.opencane`（兼容读取 `~/.nanobot`）
-- 历史文档已归档到本地目录：`../local-docs/nanobot-legacy/`
+- CLI 主命令：`opencane`
+- 默认数据目录：`~/.opencane`
+- 历史文档已归档到本地目录：`../local-docs/`
 
 ## 阅读顺序
 
@@ -36,8 +36,7 @@
 - 运维手册: `operations-runbook.md`
 - 安全基线: `security.md`
 - 路线图: `roadmap.md`
-- 迁移说明: `migration-from-nanobot.md`
 
 ## 历史文档归档
 
-- 旧版 nanobot 文档: `../local-docs/nanobot-legacy/`
+- 本地历史文档目录: `../local-docs/`

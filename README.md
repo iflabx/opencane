@@ -75,20 +75,17 @@ opencane hardware serve --adapter mock --logs
 - Security Baseline: `docs/security.md`
 - Roadmap: `docs/roadmap.md`
 
-### NanoBot Compatibility and Migration
+### OpenCane Runtime Conventions
 
-- Primary CLI command is `opencane`, with `nanobot` alias compatibility
-- Project branding and product docs are now OpenCane
-- Python package/import path uses `opencane` (no longer supports `from nanobot...`)
-- Default data directory is `~/.opencane`, with backward-compatible reads from `~/.nanobot`
-- Migration guide: `docs/migration-from-nanobot.md`
-- Legacy nanobot docs are archived at: `local-docs/nanobot-legacy/`
-- Archive README: `local-docs/nanobot-legacy/README.md`
+- Primary CLI command: `opencane`
+- Python package/import path: `opencane`
+- Default data directory: `~/.opencane`
+- Local internal docs directory: `local-docs/`
 
 ### Acknowledgement
 
-OpenCane is continuously developed based on [HKUDS/nanobot](https://github.com/HKUDS/nanobot).  
-Thanks to HKUDS for the open-source foundation.
+OpenCane is continuously evolved from an upstream open-source foundation by HKUDS.  
+Thanks to HKUDS for the original engineering base.
 
 ---
 
@@ -164,17 +161,14 @@ opencane hardware serve --adapter mock --logs
 - 安全基线：`docs/security.md`
 - 路线图：`docs/roadmap.md`
 
-### NanoBot 兼容与迁移
+### OpenCane 运行约定
 
-- CLI 主命令为 `opencane`，并兼容 `nanobot` 别名
-- 项目品牌与产品文档已切换为 OpenCane
-- Python 包与导入路径：使用 `opencane`（不再支持 `from nanobot...`）
-- 数据目录：默认 `~/.opencane`，兼容读取历史 `~/.nanobot`
-- 迁移说明：`docs/migration-from-nanobot.md`
-- 旧版 nanobot 历史文档已归档到：`local-docs/nanobot-legacy/`
-- 归档说明见：`local-docs/nanobot-legacy/README.md`
+- CLI 主命令：`opencane`
+- Python 包与导入路径：`opencane`
+- 默认数据目录：`~/.opencane`
+- 本地内部文档目录：`local-docs/`
 
 ### 致谢
 
-本项目基于 [HKUDS/nanobot](https://github.com/HKUDS/nanobot) 进行持续开发与场景化演进。  
-感谢 HKUDS 团队开源 nanobot，为 OpenCane 的落地提供了坚实基础。
+本项目基于 HKUDS 的上游开源基础进行持续开发与场景化演进。  
+感谢 HKUDS 团队提供的原始工程基础。

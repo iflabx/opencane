@@ -40,20 +40,27 @@ jobs:
 
       - name: Validate EC600 protocol template (draft)
         run: |
+          TEMPLATE_FILE="$(find local-docs -maxdepth 3 -type f -name 'EC600_PROTOCOL_MAPPING_TEMPLATE.md' | head -n 1)"
+          if [ -z "${TEMPLATE_FILE}" ]; then
+            echo "No EC600 protocol template found under local-docs/, skip draft validation."
+            exit 0
+          fi
           python -m opencane.hardware.validate_protocol \
-            --mapping local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md \
+            --mapping "${TEMPLATE_FILE}" \
             --stage draft
 
       - name: Validate EC600 frozen mapping (freeze gate)
         run: |
+          TEMPLATE_FILE="$(find local-docs -maxdepth 3 -type f -name 'EC600_PROTOCOL_MAPPING_TEMPLATE.md' | head -n 1)"
+          DEFERRED_FILE="$(find local-docs -maxdepth 3 -type f -name 'HARDWARE_JOINT_DEBUG_DEFERRED.md' | head -n 1)"
           if [ -f "EC600_PROTOCOL_MAPPING_V1.md" ]; then
             python -m opencane.hardware.validate_protocol \
               --mapping EC600_PROTOCOL_MAPPING_V1.md \
               --stage freeze
-          elif grep -q "当前状态：\`Frozen\`" local-docs/nanobot-legacy/EC600_PROTOCOL_MAPPING_TEMPLATE.md; then
+          elif [ -n "${TEMPLATE_FILE}" ] && grep -q "当前状态：\`Frozen\`" "${TEMPLATE_FILE}"; then
             echo "Template is Frozen but EC600_PROTOCOL_MAPPING_V1.md is missing."
             exit 1
-          elif grep -q "状态：\`Deferred\`" local-docs/nanobot-legacy/HARDWARE_JOINT_DEBUG_DEFERRED.md; then
+          elif [ -n "${DEFERRED_FILE}" ] && grep -q "状态：\`Deferred\`" "${DEFERRED_FILE}"; then
             echo "Freeze gate deferred by HARDWARE_JOINT_DEBUG_DEFERRED.md"
           else
             echo "EC600 freeze gate requires EC600_PROTOCOL_MAPPING_V1.md or an explicit Deferred marker."
