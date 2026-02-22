@@ -29,18 +29,13 @@ OpenCane 是“AI Agent 平台能力 + 智能盲杖后端能力”的统一工�
 - OTA 固件发布平台
 - 多租户控制平面 SaaS
 
-## 3. 运行接口与兼容边界
+## 3. 运行接口
 
-项目品牌已切换为 OpenCane，但以下运行接口仍保持兼容：
+当前运行接口如下：
 
 - Python 包/导入：`opencane`
-- CLI：`opencane ...`（兼容 `nanobot` 别名）
-- 默认配置路径：`~/.opencane/config.json`（兼容读取 `~/.nanobot/config.json`）
-
-不在兼容范围内：
-
-- `python -m nanobot`
-- `from nanobot...` 导入路径
+- CLI：`opencane ...`
+- 默认配置路径：`~/.opencane/config.json`
 
 ## 4. 文档使用方式
 
