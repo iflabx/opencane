@@ -100,6 +100,46 @@ class LiteLLMProvider(LLMProvider):
             return model
         return f"{canonical_prefix}/{remainder}"
 
+    def _supports_cache_control(self, model: str) -> bool:
+        """Return True when the routed provider supports prompt cache_control."""
+        if self._gateway is not None:
+            return bool(self._gateway.supports_prompt_caching)
+        spec = find_by_model(model)
+        return spec is not None and bool(spec.supports_prompt_caching)
+
+    def _apply_cache_control(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        """Return copies of messages/tools with ephemeral cache_control hints."""
+        new_messages: list[dict[str, Any]] = []
+        for msg in messages:
+            if msg.get("role") != "system":
+                new_messages.append(msg)
+                continue
+
+            content = msg.get("content")
+            if isinstance(content, str):
+                new_content: Any = [{"type": "text", "text": content, "cache_control": {"type": "ephemeral"}}]
+            elif isinstance(content, list) and content:
+                new_content = list(content)
+                last = new_content[-1]
+                if isinstance(last, dict):
+                    new_content[-1] = {**last, "cache_control": {"type": "ephemeral"}}
+            else:
+                new_messages.append(msg)
+                continue
+
+            new_messages.append({**msg, "content": new_content})
+
+        new_tools = tools
+        if tools:
+            new_tools = list(tools)
+            new_tools[-1] = {**new_tools[-1], "cache_control": {"type": "ephemeral"}}
+
+        return new_messages, new_tools
+
     def _apply_model_overrides(self, model: str, kwargs: dict[str, Any]) -> None:
         """Apply model-specific parameter overrides from the registry."""
         model_lower = model.lower()
@@ -131,7 +171,11 @@ class LiteLLMProvider(LLMProvider):
         Returns:
             LLMResponse with content and/or tool calls.
         """
-        model = self._resolve_model(model or self.default_model)
+        original_model = model or self.default_model
+        model = self._resolve_model(original_model)
+
+        if self._supports_cache_control(original_model):
+            messages, tools = self._apply_cache_control(messages, tools)
 
         # Clamp max_tokens to at least 1 — negative or zero values cause
         # LiteLLM to reject the request with "max_tokens must be at least 1".
