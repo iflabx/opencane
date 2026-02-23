@@ -13,8 +13,11 @@ from telegram.request import HTTPXRequest
 from opencane.bus.events import OutboundMessage
 from opencane.bus.queue import MessageBus
 from opencane.channels.base import BaseChannel
+from opencane.channels.text_split import split_message
 from opencane.config.schema import TelegramConfig
 from opencane.utils.helpers import get_data_path
+
+MAX_TEXT_LENGTH = 4000  # Telegram hard limit is 4096; keep margin for safety.
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -190,27 +193,33 @@ class TelegramChannel(BaseChannel):
         self._stop_typing(msg.chat_id)
 
         try:
-            # chat_id should be the Telegram chat ID (integer)
             chat_id = int(msg.chat_id)
-            # Convert markdown to Telegram HTML
-            html_content = _markdown_to_telegram_html(msg.content)
-            await self._app.bot.send_message(
-                chat_id=chat_id,
-                text=html_content,
-                parse_mode="HTML"
-            )
         except ValueError:
             logger.error(f"Invalid chat_id: {msg.chat_id}")
-        except Exception as e:
-            # Fallback to plain text if HTML parsing fails
-            logger.warning(f"HTML parse failed, falling back to plain text: {e}")
+            return
+
+        chunks = split_message(msg.content or "", max_len=MAX_TEXT_LENGTH)
+        if not chunks:
+            return
+
+        for i, chunk in enumerate(chunks):
             try:
+                html_content = _markdown_to_telegram_html(chunk)
                 await self._app.bot.send_message(
-                    chat_id=int(msg.chat_id),
-                    text=msg.content
+                    chat_id=chat_id,
+                    text=html_content,
+                    parse_mode="HTML"
                 )
-            except Exception as e2:
-                logger.error(f"Error sending Telegram message: {e2}")
+            except Exception as e:
+                # Fallback to plain text if HTML parsing fails
+                logger.warning(f"HTML parse failed for chunk {i + 1}, falling back to plain text: {e}")
+                try:
+                    await self._app.bot.send_message(
+                        chat_id=chat_id,
+                        text=chunk
+                    )
+                except Exception as e2:
+                    logger.error(f"Error sending Telegram chunk {i + 1}: {e2}")
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
