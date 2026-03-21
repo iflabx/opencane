@@ -135,6 +135,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
         channel: str | None = None,
         chat_id: str | None = None,
         memory_context_override: str | None = None,
+        current_role: str = "user",
     ) -> list[dict[str, Any]]:
         """
         Build the complete message list for an LLM call.
@@ -166,7 +167,7 @@ To recall past events, grep {workspace_path}/memory/HISTORY.md"""
 
         # Current message (with optional image attachments)
         user_content = self._build_user_content(current_message, media)
-        messages.append({"role": "user", "content": user_content})
+        messages.append({"role": current_role, "content": user_content})
 
         return messages
 

@@ -772,6 +772,7 @@ class AgentLoop:
             channel=origin_channel,
             chat_id=origin_chat_id,
             memory_context_override=memory_context,
+            current_role="assistant" if msg.sender_id == "subagent" else "user",
         )
         final_content, _ = await self._run_agent_loop(
             initial_messages,

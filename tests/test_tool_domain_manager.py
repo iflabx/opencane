@@ -113,6 +113,27 @@ class _SingleExecProvider(LLMProvider):
         return "fake-model"
 
 
+class _SystemRoleProbeProvider(LLMProvider):
+    def __init__(self) -> None:
+        super().__init__(api_key=None, api_base=None)
+        self.last_role: str | None = None
+
+    async def chat(  # type: ignore[override]
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ) -> LLMResponse:
+        del tools, model, max_tokens, temperature
+        self.last_role = str(messages[-1].get("role"))
+        return LLMResponse(content="done")
+
+    def get_default_model(self) -> str:
+        return "fake-model"
+
+
 class _FakeSpawnTool(Tool):
     def __init__(self) -> None:
         self.calls = 0
@@ -234,3 +255,26 @@ async def test_explicit_allowlist_still_respects_channel_policy(tmp_path: Path) 
     )
     assert result == "done"
     assert fake_exec.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_subagent_system_message_uses_assistant_role(tmp_path: Path) -> None:
+    bus = MessageBus()
+    provider = _SystemRoleProbeProvider()
+    loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=tmp_path,
+    )
+
+    outbound = await loop._process_system_message(
+        InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="cli:chat-role",
+            content="system update",
+        )
+    )
+
+    assert outbound is not None
+    assert provider.last_role == "assistant"
