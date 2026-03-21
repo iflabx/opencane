@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
+from telegram.error import TimedOut
 
 from opencane.bus.events import OutboundMessage
 from opencane.bus.queue import MessageBus
@@ -20,6 +23,74 @@ class _FakeBot:
 class _FakeApp:
     def __init__(self, bot: _FakeBot) -> None:
         self.bot = bot
+
+
+class _FakeHTTPXRequest:
+    instances: list["_FakeHTTPXRequest"] = []
+
+    def __init__(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        self.kwargs = kwargs
+        self.__class__.instances.append(self)
+
+    @classmethod
+    def clear(cls) -> None:
+        cls.instances.clear()
+
+
+class _FakeUpdater:
+    def __init__(self, on_start_polling) -> None:  # type: ignore[no-untyped-def]
+        self._on_start_polling = on_start_polling
+
+    async def start_polling(self, **kwargs) -> None:  # type: ignore[no-untyped-def]
+        del kwargs
+        self._on_start_polling()
+
+
+class _FakeStartBot:
+    async def get_me(self):
+        return SimpleNamespace(id=999, username="opencane_test")
+
+    async def set_my_commands(self, _commands) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+
+class _FakeStartApp:
+    def __init__(self, on_start_polling) -> None:  # type: ignore[no-untyped-def]
+        self.bot = _FakeStartBot()
+        self.updater = _FakeUpdater(on_start_polling)
+
+    def add_error_handler(self, _handler) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    def add_handler(self, _handler) -> None:  # type: ignore[no-untyped-def]
+        return None
+
+    async def initialize(self) -> None:
+        return None
+
+    async def start(self) -> None:
+        return None
+
+
+class _FakeBuilder:
+    def __init__(self, app: _FakeStartApp) -> None:
+        self.app = app
+        self.request_value = None
+        self.get_updates_request_value = None
+
+    def token(self, _token: str):
+        return self
+
+    def request(self, request):  # type: ignore[no-untyped-def]
+        self.request_value = request
+        return self
+
+    def get_updates_request(self, request):  # type: ignore[no-untyped-def]
+        self.get_updates_request_value = request
+        return self
+
+    def build(self):
+        return self.app
 
 
 @pytest.mark.asyncio
@@ -67,3 +138,71 @@ async def test_telegram_send_skips_reply_when_disabled() -> None:
     assert "reply_to_message_id" not in bot.calls[0]
     assert "allow_sending_without_reply" not in bot.calls[0]
 
+
+@pytest.mark.asyncio
+async def test_telegram_start_uses_separate_httpx_pools(monkeypatch: pytest.MonkeyPatch) -> None:
+    _FakeHTTPXRequest.clear()
+    config = TelegramConfig(
+        enabled=True,
+        token="123:abc",
+        allow_from=["*"],
+        proxy="http://127.0.0.1:7890",
+        connection_pool_size=40,
+        pool_timeout=9.0,
+    )
+    channel = TelegramChannel(config=config, bus=MessageBus())
+    app = _FakeStartApp(lambda: setattr(channel, "_running", False))
+    builder = _FakeBuilder(app)
+
+    monkeypatch.setattr("opencane.channels.telegram.HTTPXRequest", _FakeHTTPXRequest)
+    monkeypatch.setattr(
+        "opencane.channels.telegram.Application",
+        SimpleNamespace(builder=lambda: builder),
+    )
+
+    await channel.start()
+
+    assert len(_FakeHTTPXRequest.instances) == 2
+    api_req, poll_req = _FakeHTTPXRequest.instances
+    assert api_req.kwargs["proxy"] == config.proxy
+    assert poll_req.kwargs["proxy"] == config.proxy
+    assert api_req.kwargs["connection_pool_size"] == config.connection_pool_size
+    assert poll_req.kwargs["connection_pool_size"] == 4
+    assert api_req.kwargs["pool_timeout"] == config.pool_timeout
+    assert poll_req.kwargs["pool_timeout"] == config.pool_timeout
+    assert builder.request_value is api_req
+    assert builder.get_updates_request_value is poll_req
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_retries_on_timeout(monkeypatch: pytest.MonkeyPatch) -> None:
+    bot = _FakeBot()
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    channel._app = _FakeApp(bot)  # type: ignore[assignment]
+
+    call_count = 0
+    original_send = bot.send_message
+
+    async def flaky_send(**kwargs):  # type: ignore[no-untyped-def]
+        nonlocal call_count
+        call_count += 1
+        if call_count <= 2:
+            raise TimedOut()
+        return await original_send(**kwargs)
+
+    bot.send_message = flaky_send  # type: ignore[assignment]
+    monkeypatch.setattr("opencane.channels.telegram._SEND_RETRY_BASE_DELAY", 0.01)
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="123",
+            content="hello",
+        )
+    )
+
+    assert call_count == 3
+    assert len(bot.calls) == 1

@@ -7,6 +7,7 @@ import re
 
 from loguru import logger
 from telegram import BotCommand, Update
+from telegram.error import TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -18,6 +19,8 @@ from opencane.config.schema import TelegramConfig
 from opencane.utils.helpers import get_data_path
 
 MAX_TEXT_LENGTH = 4000  # Telegram hard limit is 4096; keep margin for safety.
+_SEND_MAX_RETRIES = 3
+_SEND_RETRY_BASE_DELAY = 0.5
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -120,11 +123,28 @@ class TelegramChannel(BaseChannel):
 
         self._running = True
 
-        # Build the application with larger connection pool to avoid pool-timeout on long runs
-        req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
-        builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
-        if self.config.proxy:
-            builder = builder.proxy(self.config.proxy).get_updates_proxy(self.config.proxy)
+        proxy = self.config.proxy or None
+        # Separate pools so long polling doesn't starve outbound API calls.
+        api_request = HTTPXRequest(
+            connection_pool_size=self.config.connection_pool_size,
+            pool_timeout=self.config.pool_timeout,
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            proxy=proxy,
+        )
+        poll_request = HTTPXRequest(
+            connection_pool_size=4,
+            pool_timeout=self.config.pool_timeout,
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            proxy=proxy,
+        )
+        builder = (
+            Application.builder()
+            .token(self.config.token)
+            .request(api_request)
+            .get_updates_request(poll_request)
+        )
         self._app = builder.build()
         self._app.add_error_handler(self._on_error)
 
@@ -222,7 +242,8 @@ class TelegramChannel(BaseChannel):
                 }
             try:
                 html_content = _markdown_to_telegram_html(chunk)
-                await self._app.bot.send_message(
+                await self._call_with_retry(
+                    self._app.bot.send_message,
                     chat_id=chat_id,
                     text=html_content,
                     parse_mode="HTML",
@@ -232,13 +253,31 @@ class TelegramChannel(BaseChannel):
                 # Fallback to plain text if HTML parsing fails
                 logger.warning(f"HTML parse failed for chunk {i + 1}, falling back to plain text: {e}")
                 try:
-                    await self._app.bot.send_message(
+                    await self._call_with_retry(
+                        self._app.bot.send_message,
                         chat_id=chat_id,
                         text=chunk,
                         **reply_kwargs,
                     )
                 except Exception as e2:
                     logger.error(f"Error sending Telegram chunk {i + 1}: {e2}")
+
+    async def _call_with_retry(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        """Call Telegram API with retry on timeout."""
+        for attempt in range(1, _SEND_MAX_RETRIES + 1):
+            try:
+                return await fn(*args, **kwargs)
+            except TimedOut:
+                if attempt == _SEND_MAX_RETRIES:
+                    raise
+                delay = _SEND_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(
+                    "Telegram timeout (attempt {}/{}), retrying in {:.1f}s",
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
