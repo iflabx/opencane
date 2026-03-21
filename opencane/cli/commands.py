@@ -715,7 +715,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting opencane gateway on port {port}...")
+    console.print(f"{__logo__} Starting opencane gateway version {__version__} on port {port}...")
 
     config = load_config()
     safety_policy = SafetyPolicy.from_config(config)
