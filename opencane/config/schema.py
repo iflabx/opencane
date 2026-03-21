@@ -134,6 +134,8 @@ class SlackConfig(BaseModel):
     bot_token: str = ""  # xoxb-...
     app_token: str = ""  # xapp-...
     user_token_read_only: bool = True
+    react_emoji: str = "eyes"
+    done_emoji: str = "white_check_mark"
     group_policy: str = "mention"  # "mention", "open", "allowlist"
     group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)

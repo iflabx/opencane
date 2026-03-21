@@ -99,6 +99,10 @@ class SlackChannel(BaseChannel):
                     )
                 except Exception as e:
                     logger.error(f"Failed to upload file {media_path}: {e}")
+
+            if not (msg.metadata or {}).get("_progress"):
+                event = slack_meta.get("event", {})
+                await self._update_react_emoji(msg.chat_id, event.get("ts"))
         except Exception as e:
             logger.error(f"Error sending Slack message: {e}")
 
@@ -168,7 +172,7 @@ class SlackChannel(BaseChannel):
             if self._web_client and event.get("ts"):
                 await self._web_client.reactions_add(
                     channel=chat_id,
-                    name="eyes",
+                    name=self.config.react_emoji,
                     timestamp=event.get("ts"),
                 )
         except Exception as e:
@@ -186,6 +190,29 @@ class SlackChannel(BaseChannel):
                 }
             },
         )
+
+    async def _update_react_emoji(self, chat_id: str, ts: str | None) -> None:
+        """Remove in-progress reaction and optionally add done reaction."""
+        if not self._web_client or not ts:
+            return
+        try:
+            await self._web_client.reactions_remove(
+                channel=chat_id,
+                name=self.config.react_emoji,
+                timestamp=ts,
+            )
+        except Exception as e:
+            logger.debug("Slack reactions_remove failed: {}", e)
+
+        if self.config.done_emoji:
+            try:
+                await self._web_client.reactions_add(
+                    channel=chat_id,
+                    name=self.config.done_emoji,
+                    timestamp=ts,
+                )
+            except Exception as e:
+                logger.debug("Slack done reaction failed: {}", e)
 
     def _is_allowed(self, sender_id: str, chat_id: str, channel_type: str) -> bool:
         if channel_type == "im":
