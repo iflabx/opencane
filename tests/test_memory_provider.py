@@ -153,3 +153,34 @@ def test_unified_memory_provider_record_turn_applies_retention(tmp_path: Path) -
     assert len(episodic) == 20
     joined = "\\n".join(str(item.get("user") or "") for item in episodic)
     assert "turn-0" not in joined
+
+
+def test_context_builder_omits_empty_assistant_content() -> None:
+    builder = ContextBuilder(Path.cwd())
+    messages: list[dict[str, Any]] = []
+
+    updated = builder.add_assistant_message(
+        messages=messages,
+        content="",
+        tool_calls=[{"id": "tool-1", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}],
+        reasoning_content="thinking",
+    )
+
+    assert updated[-1]["role"] == "assistant"
+    assert "content" not in updated[-1]
+    assert "tool_calls" in updated[-1]
+    assert updated[-1]["reasoning_content"] == "thinking"
+
+
+def test_context_builder_keeps_non_empty_assistant_content() -> None:
+    builder = ContextBuilder(Path.cwd())
+    messages: list[dict[str, Any]] = []
+
+    updated = builder.add_assistant_message(
+        messages=messages,
+        content="hello",
+        tool_calls=None,
+        reasoning_content=None,
+    )
+
+    assert updated[-1]["content"] == "hello"
