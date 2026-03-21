@@ -90,3 +90,9 @@ def test_onboard_existing_workspace_safe_create(mock_paths):
     assert "Created workspace" not in result.stdout
     assert "Created AGENTS.md" in result.stdout
     assert (workspace_dir / "AGENTS.md").exists()
+
+
+def test_cli_short_help_option() -> None:
+    result = runner.invoke(app, ["-h"])
+    assert result.exit_code == 0
+    assert "Usage" in result.stdout

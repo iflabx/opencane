@@ -28,6 +28,7 @@ from opencane.utils.helpers import get_data_path
 
 app = typer.Typer(
     name="opencane",
+    context_settings={"help_option_names": ["-h", "--help"]},
     help=f"{__logo__} opencane - Personal AI Assistant",
     no_args_is_help=True,
 )
