@@ -89,3 +89,40 @@ async def test_run_history_persisted_to_disk(tmp_path) -> None:
     assert loaded is not None
     assert len(loaded.state.run_history) == 1
     assert loaded.state.run_history[0].status == "ok"
+
+
+def test_add_job_rejects_unknown_timezone(tmp_path) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+
+    with pytest.raises(ValueError, match="unknown timezone 'America/Vancovuer'"):
+        service.add_job(
+            name="tz typo",
+            schedule=CronSchedule(kind="cron", expr="0 9 * * *", tz="America/Vancovuer"),
+            message="hello",
+        )
+
+    assert service.list_jobs(include_disabled=True) == []
+
+
+def test_add_job_rejects_timezone_on_non_cron_schedule(tmp_path) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+
+    with pytest.raises(ValueError, match="tz can only be used with cron schedules"):
+        service.add_job(
+            name="bad tz usage",
+            schedule=CronSchedule(kind="every", every_ms=60_000, tz="UTC"),
+            message="hello",
+        )
+
+
+def test_add_job_accepts_valid_timezone(tmp_path) -> None:
+    service = CronService(tmp_path / "cron" / "jobs.json")
+
+    job = service.add_job(
+        name="tz ok",
+        schedule=CronSchedule(kind="cron", expr="0 9 * * *", tz="America/Vancouver"),
+        message="hello",
+    )
+
+    assert job.schedule.tz == "America/Vancouver"
+    assert job.state.next_run_at_ms is not None
