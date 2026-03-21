@@ -423,7 +423,11 @@ class TelegramChannel(BaseChannel):
         if media_file and self._app:
             try:
                 file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
+                ext = self._get_extension(
+                    media_type,
+                    getattr(media_file, "mime_type", None),
+                    getattr(media_file, "file_name", None),
+                )
 
                 # Save to workspace/media/
                 media_dir = get_data_path() / "media"
@@ -503,8 +507,8 @@ class TelegramChannel(BaseChannel):
         """Log polling / handler errors instead of silently swallowing them."""
         logger.error(f"Telegram error: {context.error}")
 
-    def _get_extension(self, media_type: str, mime_type: str | None) -> str:
-        """Get file extension based on media type."""
+    def _get_extension(self, media_type: str, mime_type: str | None, filename: str | None = None) -> str:
+        """Get file extension based on media type, falling back to source filename."""
         if mime_type:
             ext_map = {
                 "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
@@ -513,5 +517,8 @@ class TelegramChannel(BaseChannel):
             if mime_type in ext_map:
                 return ext_map[mime_type]
 
-        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3", "file": ""}
-        return type_map.get(media_type, "")
+        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3"}
+        if media_type in type_map:
+            return type_map[media_type]
+
+        return Path(filename).suffix if filename else ""

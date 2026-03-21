@@ -290,3 +290,21 @@ async def test_telegram_send_blocks_unsafe_remote_media_url(
             "text": "[Failed to send: internal.jpg]",
         }
     ]
+
+
+def test_telegram_get_extension_uses_filename_fallback_for_generic_files() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+
+    assert channel._get_extension("file", None, "report.final.v2.pdf") == ".pdf"
+
+
+def test_telegram_get_extension_prefers_known_mime_type() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+
+    assert channel._get_extension("file", "audio/ogg", "voice.mp3") == ".ogg"
