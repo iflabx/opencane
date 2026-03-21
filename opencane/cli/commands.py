@@ -320,11 +320,12 @@ def onboard():
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        config = Config()
+        save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Create workspace
-    workspace = get_workspace_path()
+    workspace = get_workspace_path(config.workspace_path)
 
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)

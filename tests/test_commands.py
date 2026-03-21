@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from opencane.cli.commands import app
+from opencane.config.schema import Config
 
 runner = CliRunner()
 
@@ -30,7 +31,7 @@ def mock_paths():
         mock_ws.return_value = workspace_dir
         mock_sc.side_effect = lambda config: config_file.write_text("{}")
 
-        yield config_file, workspace_dir
+        yield config_file, workspace_dir, mock_ws
 
         if base_dir.exists():
             shutil.rmtree(base_dir)
@@ -38,7 +39,7 @@ def mock_paths():
 
 def test_onboard_fresh_install(mock_paths):
     """No existing config — should create from scratch."""
-    config_file, workspace_dir = mock_paths
+    config_file, workspace_dir, mock_ws = mock_paths
 
     result = runner.invoke(app, ["onboard"])
 
@@ -49,11 +50,13 @@ def test_onboard_fresh_install(mock_paths):
     assert config_file.exists()
     assert (workspace_dir / "AGENTS.md").exists()
     assert (workspace_dir / "memory" / "MEMORY.md").exists()
+    expected_workspace = Config().workspace_path
+    assert mock_ws.call_args.args == (expected_workspace,)
 
 
 def test_onboard_existing_config_refresh(mock_paths):
     """Config exists, user declines overwrite — should refresh (load-merge-save)."""
-    config_file, workspace_dir = mock_paths
+    config_file, workspace_dir, _ = mock_paths
     config_file.write_text('{"existing": true}')
 
     result = runner.invoke(app, ["onboard"], input="n\n")
@@ -67,7 +70,7 @@ def test_onboard_existing_config_refresh(mock_paths):
 
 def test_onboard_existing_config_overwrite(mock_paths):
     """Config exists, user confirms overwrite — should reset to defaults."""
-    config_file, workspace_dir = mock_paths
+    config_file, workspace_dir, _ = mock_paths
     config_file.write_text('{"existing": true}')
 
     result = runner.invoke(app, ["onboard"], input="y\n")
@@ -80,7 +83,7 @@ def test_onboard_existing_config_overwrite(mock_paths):
 
 def test_onboard_existing_workspace_safe_create(mock_paths):
     """Workspace exists — should not recreate, but still add missing templates."""
-    config_file, workspace_dir = mock_paths
+    config_file, workspace_dir, _ = mock_paths
     workspace_dir.mkdir(parents=True)
     config_file.write_text("{}")
 
