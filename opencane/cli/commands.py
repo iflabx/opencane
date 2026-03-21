@@ -1274,17 +1274,62 @@ def cron_run(
     force: bool = typer.Option(False, "--force", "-f", help="Run even if disabled"),
 ):
     """Manually run a job."""
-    from opencane.config.loader import get_data_dir
+    from loguru import logger
+
+    from opencane.agent.loop import AgentLoop
+    from opencane.bus.queue import MessageBus
+    from opencane.config.loader import get_data_dir, load_config
     from opencane.cron.service import CronService
+    from opencane.safety.policy import SafetyPolicy
+
+    logger.disable("opencane")
+    config = load_config()
+    provider = _make_provider(config)
+    safety_policy = SafetyPolicy.from_config(config)
+    bus = MessageBus()
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=config.workspace_path,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        max_iterations=config.agents.defaults.max_tool_iterations,
+        memory_window=config.agents.defaults.memory_window,
+        brave_api_key=config.tools.web.search.api_key or None,
+        exec_config=config.tools.exec,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        mcp_servers=config.tools.mcp_servers,
+        safety_policy=safety_policy,
+        max_subagents=config.agents.defaults.max_subagents,
+    )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
+    result_holder: list[str] = []
+
+    async def on_job(job) -> str | None:  # type: ignore[no-untyped-def]
+        response = await agent_loop.process_direct(
+            job.payload.message,
+            session_key=f"cron:{job.id}",
+            channel=job.payload.channel or "cli",
+            chat_id=job.payload.to or "direct",
+        )
+        result_holder.append(response)
+        return response
+
+    service.on_job = on_job
 
     async def run():
-        return await service.run_job(job_id, force=force)
+        try:
+            return await service.run_job(job_id, force=force)
+        finally:
+            await agent_loop.close_mcp()
 
     if asyncio.run(run()):
         console.print("[green]✓[/green] Job executed")
+        if result_holder:
+            _print_agent_response(result_holder[0], render_markdown=True)
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
 
