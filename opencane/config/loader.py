@@ -91,21 +91,33 @@ def _migrate_config(data: dict) -> dict:
     return data
 
 
-def convert_keys(data: Any) -> Any:
+def convert_keys(data: Any, *, preserve_case: bool = False) -> Any:
     """Convert camelCase keys to snake_case for Pydantic."""
     if isinstance(data, dict):
-        return {camel_to_snake(k): convert_keys(v) for k, v in data.items()}
+        converted: dict[str, Any] = {}
+        for key, value in data.items():
+            source_key = str(key)
+            target_key = source_key if preserve_case else camel_to_snake(source_key)
+            child_preserve_case = preserve_case or target_key == "env"
+            converted[target_key] = convert_keys(value, preserve_case=child_preserve_case)
+        return converted
     if isinstance(data, list):
-        return [convert_keys(item) for item in data]
+        return [convert_keys(item, preserve_case=preserve_case) for item in data]
     return data
 
 
-def convert_to_camel(data: Any) -> Any:
+def convert_to_camel(data: Any, *, preserve_case: bool = False) -> Any:
     """Convert snake_case keys to camelCase."""
     if isinstance(data, dict):
-        return {snake_to_camel(k): convert_to_camel(v) for k, v in data.items()}
+        converted: dict[str, Any] = {}
+        for key, value in data.items():
+            source_key = str(key)
+            target_key = source_key if preserve_case else snake_to_camel(source_key)
+            child_preserve_case = preserve_case or source_key == "env"
+            converted[target_key] = convert_to_camel(value, preserve_case=child_preserve_case)
+        return converted
     if isinstance(data, list):
-        return [convert_to_camel(item) for item in data]
+        return [convert_to_camel(item, preserve_case=preserve_case) for item in data]
     return data
 
 
