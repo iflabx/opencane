@@ -1,10 +1,11 @@
 """Cron tool for scheduling reminders and tasks."""
 
+from datetime import datetime, timezone
 from typing import Any
 
 from opencane.agent.tools.base import Tool
 from opencane.cron.service import CronService
-from opencane.cron.types import CronSchedule
+from opencane.cron.types import CronJobState, CronSchedule
 
 
 class CronTool(Tool):
@@ -116,7 +117,12 @@ class CronTool(Tool):
         jobs = self._cron.list_jobs()
         if not jobs:
             return "No scheduled jobs."
-        lines = [f"- {j.name} (id: {j.id}, {j.schedule.kind})" for j in jobs]
+        lines: list[str] = []
+        for job in jobs:
+            timing = self._format_timing(job.schedule)
+            parts = [f"- {job.name} (id: {job.id}, {timing})"]
+            parts.extend(self._format_state(job.state))
+            lines.append("\n".join(parts))
         return "Scheduled jobs:\n" + "\n".join(lines)
 
     def _remove_job(self, job_id: str | None) -> str:
@@ -125,3 +131,38 @@ class CronTool(Tool):
         if self._cron.remove_job(job_id):
             return f"Removed job {job_id}"
         return f"Job {job_id} not found"
+
+    @staticmethod
+    def _format_timing(schedule: CronSchedule) -> str:
+        if schedule.kind == "cron":
+            timing = f"cron: {schedule.expr}"
+            if schedule.tz:
+                timing += f" ({schedule.tz})"
+            return timing
+        if schedule.kind == "every" and schedule.every_ms:
+            ms = schedule.every_ms
+            if ms % 3_600_000 == 0:
+                return f"every {ms // 3_600_000}h"
+            if ms % 60_000 == 0:
+                return f"every {ms // 60_000}m"
+            if ms % 1000 == 0:
+                return f"every {ms // 1000}s"
+            return f"every {ms}ms"
+        if schedule.kind == "at" and schedule.at_ms:
+            dt = datetime.fromtimestamp(schedule.at_ms / 1000, tz=timezone.utc)
+            return f"at {dt.isoformat()}"
+        return schedule.kind
+
+    @staticmethod
+    def _format_state(state: CronJobState) -> list[str]:
+        lines: list[str] = []
+        if state.last_run_at_ms:
+            last_dt = datetime.fromtimestamp(state.last_run_at_ms / 1000, tz=timezone.utc)
+            last_info = f"  Last run: {last_dt.isoformat()} - {state.last_status or 'unknown'}"
+            if state.last_error:
+                last_info += f" ({state.last_error})"
+            lines.append(last_info)
+        if state.next_run_at_ms:
+            next_dt = datetime.fromtimestamp(state.next_run_at_ms / 1000, tz=timezone.utc)
+            lines.append(f"  Next run: {next_dt.isoformat()}")
+        return lines
