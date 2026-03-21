@@ -124,6 +124,7 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
+        self._background_tasks: list[asyncio.Task[Any]] = []
         self._register_default_tools()
 
     def _should_apply_safety(
@@ -413,7 +414,19 @@ class AgentLoop:
             finally:
                 self._consolidating.discard(session.key)
 
-        asyncio.create_task(_run())
+        self._track_background_task(asyncio.create_task(_run()))
+
+    def _track_background_task(self, task: asyncio.Task[Any]) -> None:
+        """Track a background task so shutdown can drain in-flight work."""
+        self._background_tasks.append(task)
+
+        def _remove(done: asyncio.Task[Any]) -> None:
+            try:
+                self._background_tasks.remove(done)
+            except ValueError:
+                pass
+
+        task.add_done_callback(_remove)
 
     async def _build_prompt_memory_context(
         self,
@@ -610,7 +623,11 @@ class AgentLoop:
                 continue
 
     async def close_mcp(self) -> None:
-        """Close MCP connections."""
+        """Drain background tasks, then close MCP connections."""
+        if self._background_tasks:
+            pending = list(self._background_tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
         if self._mcp_stack:
             try:
                 await self._mcp_stack.aclose()

@@ -41,9 +41,58 @@ class Session:
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
+    @staticmethod
+    def _find_legal_start(messages: list[dict[str, Any]]) -> int:
+        """Find first index where every tool result has a matching assistant tool_call."""
+        declared: set[str] = set()
+        start = 0
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            if role == "assistant":
+                for tc in msg.get("tool_calls") or []:
+                    if isinstance(tc, dict) and tc.get("id"):
+                        declared.add(str(tc["id"]))
+            elif role == "tool":
+                tid = msg.get("tool_call_id")
+                if tid and str(tid) not in declared:
+                    start = i + 1
+                    declared.clear()
+                    for prev in messages[start : i + 1]:
+                        if prev.get("role") != "assistant":
+                            continue
+                        for tc in prev.get("tool_calls") or []:
+                            if isinstance(tc, dict) and tc.get("id"):
+                                declared.add(str(tc["id"]))
+        return start
+
     def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
-        """Get recent messages in LLM format (role + content only)."""
-        return [{"role": m["role"], "content": m["content"]} for m in self.messages[-max_messages:]]
+        """Get unconsolidated history in LLM format, trimmed to a legal tool boundary."""
+        unconsolidated = self.messages[self.last_consolidated :]
+        sliced = unconsolidated[-max_messages:]
+
+        # Prefer starting from a user turn when possible.
+        for idx, msg in enumerate(sliced):
+            if msg.get("role") == "user":
+                sliced = sliced[idx:]
+                break
+
+        # Some providers reject orphan tool results if matching assistant
+        # tool_calls fell outside the fixed-size history window.
+        start = self._find_legal_start(sliced)
+        if start:
+            sliced = sliced[start:]
+
+        out: list[dict[str, Any]] = []
+        for msg in sliced:
+            entry: dict[str, Any] = {
+                "role": msg.get("role"),
+                "content": msg.get("content", ""),
+            }
+            for key in ("tool_calls", "tool_call_id", "name"):
+                if key in msg:
+                    entry[key] = msg[key]
+            out.append(entry)
+        return out
 
     def clear(self) -> None:
         """Clear all messages and reset session to initial state."""
