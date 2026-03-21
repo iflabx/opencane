@@ -873,6 +873,14 @@ class AgentLoop:
 
 2. "memory_update": The updated long-term memory content. Add any new facts: user location, preferences, personal info, habits, project context, technical decisions, tools/services used. If nothing new, return the existing content unchanged.
 
+Both values MUST be strings, not objects or arrays.
+
+Example:
+{{
+  "history_entry": "[2026-03-21 12:10] User asked about ...",
+  "memory_update": "- Device: EC600MCNLE\\n- Prefers concise answers"
+}}
+
 ## Current Long-term Memory
 {current_memory or "(empty)"}
 
@@ -901,8 +909,12 @@ Respond with ONLY valid JSON, no markdown fences."""
                 return
 
             if entry := result.get("history_entry"):
+                if not isinstance(entry, str):
+                    entry = json.dumps(entry, ensure_ascii=False)
                 memory.append_history(entry)
             if update := result.get("memory_update"):
+                if not isinstance(update, str):
+                    update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
                     memory.write_long_term(update)
 
