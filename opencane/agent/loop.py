@@ -602,6 +602,12 @@ class AgentLoop:
                     ))
             except asyncio.TimeoutError:
                 continue
+            except asyncio.CancelledError:
+                # Preserve real task cancellation so shutdown can complete cleanly.
+                # Ignore non-task CancelledError signals that may leak from integrations.
+                if not self._running or asyncio.current_task().cancelling():
+                    raise
+                continue
 
     async def close_mcp(self) -> None:
         """Close MCP connections."""
