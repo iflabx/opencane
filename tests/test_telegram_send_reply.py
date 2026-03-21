@@ -134,6 +134,52 @@ async def test_telegram_send_uses_reply_when_enabled() -> None:
 
 
 @pytest.mark.asyncio
+async def test_telegram_forward_command_uses_username_sender_id() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    captured: dict = {}
+
+    async def _capture_handle_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+    channel._handle_message = _capture_handle_message  # type: ignore[assignment]
+    update = SimpleNamespace(
+        message=SimpleNamespace(chat_id=123, text="/new"),
+        effective_user=SimpleNamespace(id=42, username="alice"),
+    )
+
+    await channel._forward_command(update, None)  # type: ignore[arg-type]
+
+    assert captured["sender_id"] == "42|alice"
+    assert captured["chat_id"] == "123"
+    assert captured["content"] == "/new"
+
+
+@pytest.mark.asyncio
+async def test_telegram_forward_command_without_username_uses_numeric_sender_id() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    captured: dict = {}
+
+    async def _capture_handle_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+    channel._handle_message = _capture_handle_message  # type: ignore[assignment]
+    update = SimpleNamespace(
+        message=SimpleNamespace(chat_id=123, text="/help"),
+        effective_user=SimpleNamespace(id=84, username=None),
+    )
+
+    await channel._forward_command(update, None)  # type: ignore[arg-type]
+
+    assert captured["sender_id"] == "84"
+
+
+@pytest.mark.asyncio
 async def test_telegram_send_skips_reply_when_disabled() -> None:
     bot = _FakeBot()
     channel = TelegramChannel(
