@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+from pathlib import Path
 
 from loguru import logger
 from telegram import BotCommand, Update
@@ -16,6 +17,7 @@ from opencane.bus.queue import MessageBus
 from opencane.channels.base import BaseChannel
 from opencane.channels.text_split import split_message
 from opencane.config.schema import TelegramConfig
+from opencane.security.network import validate_url_target
 from opencane.utils.helpers import get_data_path
 
 MAX_TEXT_LENGTH = 4000  # Telegram hard limit is 4096; keep margin for safety.
@@ -229,6 +231,26 @@ class TelegramChannel(BaseChannel):
                 except (TypeError, ValueError):
                     logger.debug(f"Telegram reply_to is not a valid message id: {reply_to}")
 
+        media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p.strip()]
+        for media_path in media_paths:
+            try:
+                await self._send_media(chat_id, media_path, reply_to_message_id)
+            except Exception as e:
+                filename = Path(media_path).name or "media"
+                logger.error(f"Failed to send media {media_path}: {e}")
+                fallback_reply_kwargs: dict[str, int | bool] = {}
+                if reply_to_message_id is not None:
+                    fallback_reply_kwargs = {
+                        "reply_to_message_id": reply_to_message_id,
+                        "allow_sending_without_reply": True,
+                    }
+                await self._call_with_retry(
+                    self._app.bot.send_message,
+                    chat_id=chat_id,
+                    text=f"[Failed to send: {filename}]",
+                    **fallback_reply_kwargs,
+                )
+
         chunks = split_message(msg.content or "", max_len=MAX_TEXT_LENGTH)
         if not chunks:
             return
@@ -261,6 +283,58 @@ class TelegramChannel(BaseChannel):
                     )
                 except Exception as e2:
                     logger.error(f"Error sending Telegram chunk {i + 1}: {e2}")
+
+    @staticmethod
+    def _get_outbound_media_type(path: str) -> str:
+        """Guess Telegram media type from extension."""
+        ext = Path(path).suffix.lower()
+        if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            return "photo"
+        if ext == ".ogg":
+            return "voice"
+        if ext in (".mp3", ".m4a", ".wav", ".aac"):
+            return "audio"
+        return "document"
+
+    @staticmethod
+    def _is_remote_media_url(path: str) -> bool:
+        return path.startswith(("http://", "https://"))
+
+    async def _send_media(self, chat_id: int, media_path: str, reply_to_message_id: int | None) -> None:
+        media_type = self._get_outbound_media_type(media_path)
+        sender = {
+            "photo": self._app.bot.send_photo,
+            "voice": self._app.bot.send_voice,
+            "audio": self._app.bot.send_audio,
+        }.get(media_type, self._app.bot.send_document)
+        param = media_type if media_type in ("photo", "voice", "audio") else "document"
+
+        reply_kwargs: dict[str, int | bool] = {}
+        if reply_to_message_id is not None:
+            reply_kwargs = {
+                "reply_to_message_id": reply_to_message_id,
+                "allow_sending_without_reply": True,
+            }
+
+        if self._is_remote_media_url(media_path):
+            ok, error = validate_url_target(media_path)
+            if not ok:
+                raise ValueError(f"unsafe media URL: {error}")
+            await self._call_with_retry(
+                sender,
+                chat_id=chat_id,
+                **{param: media_path},
+                **reply_kwargs,
+            )
+            return
+
+        with open(media_path, "rb") as media_file:
+            await self._call_with_retry(
+                sender,
+                chat_id=chat_id,
+                **{param: media_file},
+                **reply_kwargs,
+            )
 
     async def _call_with_retry(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
         """Call Telegram API with retry on timeout."""

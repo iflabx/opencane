@@ -14,9 +14,26 @@ from opencane.config.schema import TelegramConfig
 class _FakeBot:
     def __init__(self) -> None:
         self.calls: list[dict] = []
+        self.media_calls: list[dict] = []
 
     async def send_message(self, **kwargs):  # type: ignore[no-untyped-def]
         self.calls.append(kwargs)
+        return None
+
+    async def send_photo(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.media_calls.append({"kind": "photo", **kwargs})
+        return None
+
+    async def send_voice(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.media_calls.append({"kind": "voice", **kwargs})
+        return None
+
+    async def send_audio(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.media_calls.append({"kind": "audio", **kwargs})
+        return None
+
+    async def send_document(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.media_calls.append({"kind": "document", **kwargs})
         return None
 
 
@@ -206,3 +223,70 @@ async def test_telegram_send_retries_on_timeout(monkeypatch: pytest.MonkeyPatch)
 
     assert call_count == 3
     assert len(bot.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_remote_media_url_after_security_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _FakeBot()
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    channel._app = _FakeApp(bot)  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "opencane.channels.telegram.validate_url_target",
+        lambda url: (True, "") if url == "https://example.com/cat.jpg" else (False, "blocked"),
+    )
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="123",
+            content="",
+            media=["https://example.com/cat.jpg"],
+        )
+    )
+
+    assert bot.media_calls == [
+        {
+            "kind": "photo",
+            "chat_id": 123,
+            "photo": "https://example.com/cat.jpg",
+        }
+    ]
+    assert bot.calls == []
+
+
+@pytest.mark.asyncio
+async def test_telegram_send_blocks_unsafe_remote_media_url(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    bot = _FakeBot()
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    channel._app = _FakeApp(bot)  # type: ignore[assignment]
+    monkeypatch.setattr(
+        "opencane.channels.telegram.validate_url_target",
+        lambda _: (False, "Blocked: private/internal"),
+    )
+
+    await channel.send(
+        OutboundMessage(
+            channel="telegram",
+            chat_id="123",
+            content="",
+            media=["http://example.com/internal.jpg"],
+        )
+    )
+
+    assert bot.media_calls == []
+    assert bot.calls == [
+        {
+            "chat_id": 123,
+            "text": "[Failed to send: internal.jpg]",
+        }
+    ]
