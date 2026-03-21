@@ -1,6 +1,7 @@
 """Session management for conversation history."""
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,13 @@ from typing import Any
 
 from loguru import logger
 
-from opencane.utils.helpers import ensure_dir, get_data_path, safe_filename
+from opencane.utils.helpers import (
+    ensure_dir,
+    get_data_path,
+    get_legacy_data_path,
+    get_primary_data_path,
+    safe_filename,
+)
 
 
 @dataclass
@@ -110,13 +117,32 @@ class SessionManager:
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        self.sessions_dir = ensure_dir(get_data_path() / "sessions")
+        self.sessions_dir = ensure_dir(self.workspace / "sessions")
+        legacy_roots = [
+            get_primary_data_path(),
+            get_legacy_data_path(),
+            get_data_path(),
+        ]
+        seen: set[Path] = set()
+        self.legacy_sessions_dirs: list[Path] = []
+        current_dir = self.sessions_dir.resolve()
+        for root in legacy_roots:
+            candidate = (root / "sessions").expanduser().resolve()
+            if candidate == current_dir or candidate in seen:
+                continue
+            seen.add(candidate)
+            self.legacy_sessions_dirs.append(candidate)
         self._cache: dict[str, Session] = {}
 
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session."""
         safe_key = safe_filename(key.replace(":", "_"))
         return self.sessions_dir / f"{safe_key}.jsonl"
+
+    def _get_legacy_session_paths(self, key: str) -> list[Path]:
+        """Get legacy session paths for backward compatibility."""
+        safe_key = safe_filename(key.replace(":", "_"))
+        return [path / f"{safe_key}.jsonl" for path in self.legacy_sessions_dirs]
 
     def get_or_create(self, key: str) -> Session:
         """
@@ -141,6 +167,19 @@ class SessionManager:
     def _load(self, key: str) -> Session | None:
         """Load a session from disk."""
         path = self._get_session_path(key)
+
+        if not path.exists():
+            for legacy_path in self._get_legacy_session_paths(key):
+                if not legacy_path.exists():
+                    continue
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(legacy_path), str(path))
+                    logger.info(f"Migrated session {key} from legacy path")
+                except Exception as e:
+                    logger.warning(f"Failed to migrate legacy session {key}: {e}")
+                    path = legacy_path
+                break
 
         if not path.exists():
             return None
