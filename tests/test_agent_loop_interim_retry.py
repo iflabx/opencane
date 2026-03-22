@@ -35,7 +35,7 @@ class _InterimThenToolProvider(LLMProvider):
                     ToolCallRequest(
                         id="msg-1",
                         name="message",
-                        arguments={"content": "Tool progress update"},
+                        arguments={"content": "Tool progress update", "chat_id": "chat-progress"},
                     )
                 ],
             )

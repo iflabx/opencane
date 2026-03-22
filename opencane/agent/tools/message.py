@@ -20,6 +20,7 @@ class MessageTool(Tool):
         self._default_channel = default_channel
         self._default_chat_id = default_chat_id
         self._pre_send_filter = pre_send_filter
+        self._turn_sends: list[tuple[str, str]] = []
 
     def set_context(self, channel: str, chat_id: str) -> None:
         """Set the current message context."""
@@ -33,6 +34,14 @@ class MessageTool(Tool):
     def set_pre_send_filter(self, callback: Callable[[str, str, str], str] | None) -> None:
         """Set optional content filter before outbound send."""
         self._pre_send_filter = callback
+
+    def start_turn(self) -> None:
+        """Reset per-turn send tracking."""
+        self._turn_sends.clear()
+
+    def get_turn_sends(self) -> list[tuple[str, str]]:
+        """Get (channel, chat_id) targets sent in the current turn."""
+        return list(self._turn_sends)
 
     @property
     def name(self) -> str:
@@ -94,6 +103,7 @@ class MessageTool(Tool):
 
         try:
             await self._send_callback(msg)
+            self._turn_sends.append((channel, chat_id))
             return f"Message sent to {channel}:{chat_id}"
         except Exception as e:
             return f"Error sending message: {str(e)}"

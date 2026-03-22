@@ -712,6 +712,9 @@ class AgentLoop:
             self._schedule_consolidation(session)
 
         self._set_tool_context(msg.channel, msg.chat_id)
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                message_tool.start_turn()
         memory_context = await self._build_prompt_memory_context(
             query=msg.content,
             session_key=key,
@@ -768,6 +771,19 @@ class AgentLoop:
         except Exception as e:
             logger.debug(f"layered memory record_turn failed: {e}")
         self.sessions.save(session)
+
+        suppress_final_reply = False
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                sent_targets = set(message_tool.get_turn_sends())
+                suppress_final_reply = (msg.channel, msg.chat_id) in sent_targets
+
+        if suppress_final_reply:
+            logger.info(
+                "Skipping final auto-reply because message tool already sent to "
+                f"{msg.channel}:{msg.chat_id} in this turn"
+            )
+            return None
 
         return OutboundMessage(
             channel=msg.channel,
