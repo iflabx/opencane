@@ -170,6 +170,18 @@ class LiteLLMProvider(LLMProvider):
         sanitized: list[dict[str, Any]] = []
         for msg in messages:
             clean = {k: v for k, v in msg.items() if k in _ALLOWED_MSG_KEYS}
+            content = clean.get("content")
+            if isinstance(content, list):
+                new_blocks: list[Any] = []
+                changed = False
+                for block in content:
+                    if isinstance(block, dict) and "_meta" in block:
+                        new_blocks.append({k: v for k, v in block.items() if k != "_meta"})
+                        changed = True
+                    else:
+                        new_blocks.append(block)
+                if changed:
+                    clean["content"] = new_blocks
             # Some providers require assistant messages to always carry "content".
             if clean.get("role") == "assistant" and "content" not in clean:
                 clean["content"] = None

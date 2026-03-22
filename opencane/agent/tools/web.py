@@ -8,8 +8,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
+from loguru import logger
 
 from opencane.agent.tools.base import Tool
+from opencane.utils.helpers import build_image_content_blocks
 
 # Shared constants
 USER_AGENT = "Mozilla/5.0 (Macintosh; Intel Mac OS X 14_7_2) AppleWebKit/537.36"
@@ -130,7 +132,7 @@ class WebFetchTool(Tool):
         extract_mode: str = "markdown",
         max_chars: int | None = None,
         **kwargs: Any,
-    ) -> str:
+    ) -> Any:
         from readability import Document
 
         if "extractMode" in kwargs:
@@ -147,6 +149,36 @@ class WebFetchTool(Tool):
         if not is_valid:
             return json.dumps({"error": f"URL validation failed: {error_msg}", "url": url})
 
+        # Detect image responses first so multimodal models can read native image blocks.
+        try:
+            async with httpx.AsyncClient(
+                follow_redirects=True,
+                max_redirects=MAX_REDIRECTS,
+                timeout=15.0,
+            ) as client:
+                async with client.stream("GET", url, headers={"User-Agent": USER_AGENT}) as r:
+                    from opencane.security.network import validate_resolved_url
+
+                    redir_ok, redir_err = validate_resolved_url(str(r.url))
+                    if not redir_ok:
+                        return json.dumps(
+                            {"error": f"Redirect blocked: {redir_err}", "url": url},
+                            ensure_ascii=False,
+                        )
+
+                    ctype = r.headers.get("content-type", "")
+                    if ctype.startswith("image/"):
+                        r.raise_for_status()
+                        raw = await r.aread()
+                        return build_image_content_blocks(
+                            raw,
+                            ctype,
+                            url,
+                            f"(Image fetched from: {url})",
+                        )
+        except Exception as e:
+            logger.debug("Pre-fetch image detection failed for {}: {}", url, e)
+
         try:
             async with httpx.AsyncClient(
                 follow_redirects=True,
@@ -162,6 +194,13 @@ class WebFetchTool(Tool):
                 return json.dumps({"error": f"Redirect blocked: {redir_err}", "url": url}, ensure_ascii=False)
 
             ctype = r.headers.get("content-type", "")
+            if ctype.startswith("image/"):
+                return build_image_content_blocks(
+                    r.content,
+                    ctype,
+                    url,
+                    f"(Image fetched from: {url})",
+                )
 
             # JSON
             if "application/json" in ctype:

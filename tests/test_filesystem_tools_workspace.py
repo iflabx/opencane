@@ -98,3 +98,20 @@ async def test_edit_file_tool_not_found_reports_best_match(tmp_path: Path) -> No
     assert "Best match" in result
     assert "similar" in result
     assert "old_text (provided)" in result
+
+
+@pytest.mark.asyncio
+async def test_read_file_tool_returns_multimodal_blocks_for_image(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    image_file = workspace / "photo.png"
+    image_file.write_bytes(b"\x89PNG\r\n\x1a\nfake-png")
+
+    tool = ReadFileTool(workspace=workspace)
+    result = await tool.execute(path="photo.png")
+
+    assert isinstance(result, list)
+    assert result[0]["type"] == "image_url"
+    assert result[0]["image_url"]["url"].startswith("data:image/png;base64,")
+    assert result[0]["_meta"]["path"] == str(image_file)
+    assert result[1] == {"type": "text", "text": "(Image file: photo.png)"}

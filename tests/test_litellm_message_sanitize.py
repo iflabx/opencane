@@ -48,6 +48,31 @@ def test_sanitize_messages_strips_extra_keys_and_keeps_assistant_content_key() -
     assert "reasoning_content" in messages[0]
 
 
+def test_sanitize_messages_strips_internal_meta_from_content_blocks() -> None:
+    provider = LiteLLMProvider(default_model="openai/gpt-4.1")
+    messages = [
+        {
+            "role": "user",
+            "content": [
+                {
+                    "type": "image_url",
+                    "image_url": {"url": "data:image/png;base64,abc"},
+                    "_meta": {"path": "/tmp/a.png"},
+                },
+                {"type": "text", "text": "look"},
+            ],
+        }
+    ]
+
+    sanitized = provider._sanitize_messages(messages)
+
+    assert sanitized[0]["content"][0] == {
+        "type": "image_url",
+        "image_url": {"url": "data:image/png;base64,abc"},
+    }
+    assert "_meta" in messages[0]["content"][0]
+
+
 @pytest.mark.asyncio
 async def test_chat_passes_sanitized_messages_to_litellm(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
@@ -69,3 +94,33 @@ async def test_chat_passes_sanitized_messages_to_litellm(monkeypatch: pytest.Mon
     sent_messages = captured["kwargs"]["messages"]
     assert sent_messages == [{"role": "assistant", "tool_calls": [{"id": "tool-1"}], "content": None}]
 
+
+@pytest.mark.asyncio
+async def test_chat_sanitizes_nested_meta_blocks(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict[str, Any] = {}
+
+    async def _fake_acompletion(**kwargs: Any) -> Any:
+        captured["kwargs"] = kwargs
+        return _dummy_litellm_response()
+
+    monkeypatch.setattr("opencane.providers.litellm_provider.acompletion", _fake_acompletion)
+
+    provider = LiteLLMProvider(default_model="openai/gpt-4.1")
+    await provider.chat(
+        model="openai/gpt-4.1",
+        messages=[
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "image_url",
+                        "image_url": {"url": "data:image/png;base64,abc"},
+                        "_meta": {"path": "/tmp/a.png"},
+                    }
+                ],
+            }
+        ],
+    )
+
+    sent_messages = captured["kwargs"]["messages"]
+    assert "_meta" not in sent_messages[0]["content"][0]
