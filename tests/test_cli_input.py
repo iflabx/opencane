@@ -56,3 +56,17 @@ def test_init_prompt_session_creates_session():
         _, kwargs = mock_session_cls.call_args
         assert kwargs["multiline"] is False
         assert kwargs["enable_open_in_editor"] is False
+
+
+def test_response_renderable_uses_text_when_render_as_text_metadata() -> None:
+    renderable = commands._response_renderable(
+        "line1\nline2",
+        render_markdown=True,
+        metadata={"render_as": "text"},
+    )
+    assert renderable.__class__.__name__ == "Text"
+
+
+def test_response_renderable_keeps_markdown_when_no_text_metadata() -> None:
+    renderable = commands._response_renderable("**bold**", render_markdown=True)
+    assert renderable.__class__.__name__ == "Markdown"
