@@ -64,10 +64,14 @@ class _FakeUpdater:
 
 
 class _FakeStartBot:
+    def __init__(self) -> None:
+        self.commands = []
+
     async def get_me(self):
         return SimpleNamespace(id=999, username="opencane_test")
 
-    async def set_my_commands(self, _commands) -> None:  # type: ignore[no-untyped-def]
+    async def set_my_commands(self, commands) -> None:  # type: ignore[no-untyped-def]
+        self.commands = list(commands)
         return None
 
 
@@ -180,6 +184,29 @@ async def test_telegram_forward_command_without_username_uses_numeric_sender_id(
 
 
 @pytest.mark.asyncio
+async def test_telegram_forward_status_command() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False),
+        bus=MessageBus(),
+    )
+    captured: dict = {}
+
+    async def _capture_handle_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+    channel._handle_message = _capture_handle_message  # type: ignore[assignment]
+    update = SimpleNamespace(
+        message=SimpleNamespace(chat_id=123, text="/status"),
+        effective_user=SimpleNamespace(id=99, username="bob"),
+    )
+
+    await channel._forward_command(update, None)  # type: ignore[arg-type]
+
+    assert captured["sender_id"] == "99|bob"
+    assert captured["content"] == "/status"
+
+
+@pytest.mark.asyncio
 async def test_telegram_send_skips_reply_when_disabled() -> None:
     bot = _FakeBot()
     channel = TelegramChannel(
@@ -235,6 +262,7 @@ async def test_telegram_start_uses_separate_httpx_pools(monkeypatch: pytest.Monk
     assert poll_req.kwargs["pool_timeout"] == config.pool_timeout
     assert builder.request_value is api_req
     assert builder.get_updates_request_value is poll_req
+    assert any(cmd.command == "status" for cmd in app.bot.commands)
 
 
 @pytest.mark.asyncio

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import json_repair
 from loguru import logger
 
+from opencane import __version__
 from opencane.agent.context import ContextBuilder
 from opencane.agent.memory import UnifiedMemoryProvider
 from opencane.agent.subagent import SubagentManager
@@ -126,6 +128,11 @@ class AgentLoop:
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
         self._consolidation_locks: dict[str, asyncio.Lock] = {}
         self._background_tasks: list[asyncio.Task[Any]] = []
+        self._start_time = time.time()
+        self._last_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
         self._register_default_tools()
 
     def _should_apply_safety(
@@ -504,6 +511,39 @@ class AgentLoop:
             lines.append(f"- {key}: {_shorten(text, 320)}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_uptime(seconds: int) -> str:
+        if seconds >= 3600:
+            return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+        return f"{seconds // 60}m {seconds % 60}s"
+
+    def _build_status_content(self, session: Session) -> str:
+        history = session.get_history(max_messages=0)
+        msg_count = len(history)
+        active_subagents = self.subagents.get_running_count()
+        uptime_s = int(max(0, time.time() - self._start_time))
+        last_in = int(self._last_usage.get("prompt_tokens", 0))
+        last_out = int(self._last_usage.get("completion_tokens", 0))
+
+        return "\n".join(
+            [
+                f"🦯 OpenCane v{__version__}",
+                f"🧠 Model: {self.model}",
+                f"📊 Last tokens: {last_in} in / {last_out} out",
+                f"💬 Session: {msg_count} messages",
+                f"👾 Subagents: {active_subagents} active",
+                f"🪢 Queue: {self.bus.inbound.qsize()} pending",
+                f"⏱ Uptime: {self._format_uptime(uptime_s)}",
+            ]
+        )
+
+    def _status_response(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._build_status_content(session),
+        )
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -560,6 +600,11 @@ class AgentLoop:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+            usage = response.usage or {}
+            self._last_usage = {
+                "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            }
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -749,7 +794,9 @@ class AgentLoop:
             )
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🦯 OpenCane commands:\n/new — Start a new conversation\n/help — Show available commands")
+                                  content="🦯 OpenCane commands:\n/new — Start a new conversation\n/status — Show runtime status\n/help — Show available commands")
+        if cmd == "/status":
+            return self._status_response(msg, session)
 
         if len(session.messages) > self.memory_window:
             self._schedule_consolidation(session)
