@@ -508,6 +508,7 @@ class AgentLoop:
         tools_used: list[str] = []
         tool_call_counts: dict[str, int] = {}
         text_only_retried = False
+        interim_content: str | None = None
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -590,6 +591,7 @@ class AgentLoop:
                 # Give one extra iteration only when tool calling is available.
                 if interim_text and not tools_used and not text_only_retried and bool(tool_defs):
                     text_only_retried = True
+                    interim_content = interim_text
                     logger.debug(
                         "Interim text response (no tools used yet), retrying once: {}",
                         _shorten(interim_text, 120),
@@ -601,6 +603,8 @@ class AgentLoop:
                     )
                     final_content = None
                     continue
+                if not interim_text and interim_content and not tools_used:
+                    final_content = interim_content
                 if require_tool_use and not tools_used:
                     final_content = "NO_TOOL_USED"
                 break
