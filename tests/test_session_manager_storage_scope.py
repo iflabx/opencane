@@ -58,3 +58,40 @@ def test_session_manager_migrates_legacy_session_to_workspace(tmp_path, monkeypa
     assert session.messages[0]["content"] == "legacy hello"
     assert (workspace / "sessions" / "cli_chat-b.jsonl").exists()
     assert not legacy_file.exists()
+
+
+def test_list_sessions_uses_stored_session_key(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    manager = SessionManager(workspace)
+
+    session = Session(key="cli:user_name_room")
+    session.add_message("user", "hello")
+    manager.save(session)
+
+    listed = manager.list_sessions()
+    assert listed
+    assert listed[0]["key"] == "cli:user_name_room"
+
+
+def test_list_sessions_legacy_filename_fallback_replaces_first_separator_only(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    manager = SessionManager(workspace)
+    path = workspace / "sessions" / "cli_user_name_room.jsonl"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(
+            {
+                "_type": "metadata",
+                "created_at": "2026-03-22T12:00:00",
+                "updated_at": "2026-03-22T12:00:00",
+                "metadata": {},
+                "last_consolidated": 0,
+            }
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
+    listed = manager.list_sessions()
+    assert listed
+    assert listed[0]["key"] == "cli:user_name_room"
