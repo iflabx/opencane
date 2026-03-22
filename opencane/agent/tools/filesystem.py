@@ -1,10 +1,12 @@
 """File system tools: read, write, edit."""
 
 import difflib
+import mimetypes
 from pathlib import Path
 from typing import Any
 
 from opencane.agent.tools.base import Tool
+from opencane.utils.helpers import build_image_content_blocks, detect_image_mime
 
 
 def _resolve_path(path: str, workspace: Path | None = None, allowed_dir: Path | None = None) -> Path:
@@ -49,7 +51,7 @@ class ReadFileTool(Tool):
             "required": ["path"]
         }
 
-    async def execute(self, path: str, **kwargs: Any) -> str:
+    async def execute(self, path: str, **kwargs: Any) -> Any:
         try:
             file_path = _resolve_path(path, self._workspace, self._allowed_dir)
             if not file_path.exists():
@@ -57,8 +59,26 @@ class ReadFileTool(Tool):
             if not file_path.is_file():
                 return f"Error: Not a file: {path}"
 
-            content = file_path.read_text(encoding="utf-8")
-            return content
+            raw = file_path.read_bytes()
+            if not raw:
+                return f"(Empty file: {path})"
+
+            mime = detect_image_mime(raw) or mimetypes.guess_type(str(file_path))[0]
+            if mime and mime.startswith("image/"):
+                return build_image_content_blocks(
+                    raw,
+                    mime,
+                    str(file_path),
+                    f"(Image file: {path})",
+                )
+
+            try:
+                return raw.decode("utf-8")
+            except UnicodeDecodeError:
+                return (
+                    f"Error: Cannot read binary file {path} (MIME: {mime or 'unknown'}). "
+                    "Only UTF-8 text and images are supported."
+                )
         except PermissionError as e:
             return f"Error: {e}"
         except Exception as e:
