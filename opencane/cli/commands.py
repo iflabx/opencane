@@ -758,12 +758,13 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
-        response = await agent.process_direct(
+        resp = await agent.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
         )
+        response = resp.content if resp else ""
         if job.payload.deliver and job.payload.to:
             from opencane.bus.events import OutboundMessage
             await bus.publish_outbound(OutboundMessage(
@@ -777,7 +778,8 @@ def gateway(
     # Create heartbeat service
     async def on_heartbeat(prompt: str) -> str:
         """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat")
+        resp = await agent.process_direct(prompt, session_key="heartbeat")
+        return resp.content if resp else ""
 
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
@@ -894,7 +896,7 @@ def agent(
             try:
                 with _thinking_ctx():
                     response = await agent_loop.process_direct(message, session_id)
-                _print_agent_response(response, render_markdown=markdown)
+                _print_agent_response(response.content if response else "", render_markdown=markdown)
             finally:
                 await agent_loop.close_mcp()
                 if lifelog_service:
@@ -930,7 +932,7 @@ def agent(
 
                         with _thinking_ctx():
                             response = await agent_loop.process_direct(user_input, session_id)
-                        _print_agent_response(response, render_markdown=markdown)
+                        _print_agent_response(response.content if response else "", render_markdown=markdown)
                     except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
@@ -1325,12 +1327,13 @@ def cron_run(
     result_holder: list[str] = []
 
     async def on_job(job) -> str | None:  # type: ignore[no-untyped-def]
-        response = await agent_loop.process_direct(
+        resp = await agent_loop.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
         )
+        response = resp.content if resp else ""
         result_holder.append(response)
         return response
 

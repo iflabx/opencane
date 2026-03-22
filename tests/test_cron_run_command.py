@@ -5,6 +5,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
+from opencane.bus.events import OutboundMessage
 from opencane.cli.commands import app
 from opencane.config.schema import Config
 
@@ -28,7 +29,7 @@ class _FakeAgentLoop:
         channel: str = "cli",
         chat_id: str = "direct",
         **kwargs,  # type: ignore[no-untyped-def]
-    ) -> str:
+    ) -> OutboundMessage:
         del kwargs
         self.process_calls.append(
             {
@@ -38,7 +39,7 @@ class _FakeAgentLoop:
                 "chat_id": chat_id,
             }
         )
-        return "agent-response"
+        return OutboundMessage(channel=channel, chat_id=chat_id, content="agent-response")
 
     async def close_mcp(self) -> None:
         self.closed = True

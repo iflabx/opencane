@@ -67,7 +67,7 @@ class DigitalTaskService:
             # Stage 1: explicit MCP-only execution.
             if mcp_tools:
                 mcp_prompt = _build_mcp_prompt(goal)
-                mcp_output = await agent_loop.process_direct(
+                mcp_resp = await agent_loop.process_direct(
                     mcp_prompt,
                     session_key=f"hardware:{session_id}:digital",
                     channel="hardware",
@@ -75,6 +75,7 @@ class DigitalTaskService:
                     allowed_tool_names=set(mcp_tools),
                     require_tool_use=True,
                 )
+                mcp_output = _direct_output_text(mcp_resp)
                 if not _should_fallback_from_mcp(mcp_output):
                     return {
                         "text": str(mcp_output or "").strip(),
@@ -84,7 +85,7 @@ class DigitalTaskService:
 
             # Stage 2: explicit web/exec fallback with MCP still available.
             fallback_prompt = _build_fallback_prompt(goal)
-            fallback_output = await agent_loop.process_direct(
+            fallback_resp = await agent_loop.process_direct(
                 fallback_prompt,
                 session_key=f"hardware:{session_id}:digital",
                 channel="hardware",
@@ -92,8 +93,9 @@ class DigitalTaskService:
                 allowed_tool_names=fallback_tools,
                 require_tool_use=True,
             )
+            fallback_output = _direct_output_text(fallback_resp)
             if str(fallback_output or "").strip() == _NO_TOOL_USED:
-                fallback_output = await agent_loop.process_direct(
+                fallback_resp = await agent_loop.process_direct(
                     goal,
                     session_key=f"hardware:{session_id}:digital",
                     channel="hardware",
@@ -101,6 +103,7 @@ class DigitalTaskService:
                     allowed_tool_names=fallback_tools,
                     require_tool_use=False,
                 )
+                fallback_output = _direct_output_text(fallback_resp)
             return {
                 "text": str(fallback_output or "").strip(),
                 "execution_path": "web_exec_fallback",
@@ -632,6 +635,17 @@ def _normalize_executor_result(result: Any) -> tuple[str, dict[str, Any]]:
         meta = {k: v for k, v in result.items() if k != "text"}
         return text, meta
     return str(result or ""), {}
+
+
+def _direct_output_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    content = getattr(value, "content", None)
+    if isinstance(content, str):
+        return content
+    return str(content or "")
 
 
 def _build_mcp_prompt(goal: str) -> str:

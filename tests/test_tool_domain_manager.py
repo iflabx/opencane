@@ -207,7 +207,8 @@ async def test_spawn_tool_is_guarded_by_max_calls_per_turn(tmp_path: Path) -> No
         channel="cli",
         chat_id="chat-guard",
     )
-    assert result == "done"
+    assert result is not None
+    assert result.content == "done"
     assert fake_spawn.calls == 1
 
 
@@ -253,7 +254,8 @@ async def test_explicit_allowlist_still_respects_channel_policy(tmp_path: Path) 
         chat_id="device-1",
         allowed_tool_names={"exec"},
     )
-    assert result == "done"
+    assert result is not None
+    assert result.content == "done"
     assert fake_exec.calls == 0
 
 
