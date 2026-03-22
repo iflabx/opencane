@@ -15,6 +15,7 @@ class _FakeBot:
     def __init__(self) -> None:
         self.calls: list[dict] = []
         self.media_calls: list[dict] = []
+        self.file = None
 
     async def send_message(self, **kwargs):  # type: ignore[no-untyped-def]
         self.calls.append(kwargs)
@@ -35,6 +36,9 @@ class _FakeBot:
     async def send_document(self, **kwargs):  # type: ignore[no-untyped-def]
         self.media_calls.append({"kind": "document", **kwargs})
         return None
+
+    async def get_file(self, _file_id):  # type: ignore[no-untyped-def]
+        return self.file
 
 
 class _FakeApp:
@@ -382,3 +386,81 @@ def test_telegram_get_extension_prefers_known_mime_type() -> None:
     )
 
     assert channel._get_extension("file", "audio/ogg", "voice.mp3") == ".ogg"
+
+
+def test_telegram_is_allowed_accepts_legacy_id_or_username_allowlist() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False, allow_from=["12345", "alice", "67890|bob"]),
+        bus=MessageBus(),
+    )
+
+    assert channel.is_allowed("12345|carol") is True
+    assert channel.is_allowed("99999|alice") is True
+    assert channel.is_allowed("67890|bob") is True
+
+
+def test_telegram_is_allowed_rejects_invalid_legacy_sender_shapes() -> None:
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False, allow_from=["alice"]),
+        bus=MessageBus(),
+    )
+
+    assert channel.is_allowed("attacker|alice|extra") is False
+    assert channel.is_allowed("not-a-number|alice") is False
+
+
+@pytest.mark.asyncio
+async def test_telegram_on_message_uses_file_unique_id_for_media_filename(
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path,
+) -> None:
+    bot = _FakeBot()
+    channel = TelegramChannel(
+        config=TelegramConfig(enabled=True, reply_to_message=False, allow_from=["*"]),
+        bus=MessageBus(),
+    )
+    channel._app = _FakeApp(bot)  # type: ignore[assignment]
+
+    downloaded: dict[str, str] = {}
+
+    class _FakeDownloadedFile:
+        async def download_to_drive(self, path: str) -> None:
+            downloaded["path"] = path
+
+    bot.file = _FakeDownloadedFile()
+    monkeypatch.setattr("opencane.channels.telegram.get_data_path", lambda: tmp_path)
+
+    captured: dict = {}
+
+    async def _capture_handle_message(**kwargs):  # type: ignore[no-untyped-def]
+        captured.update(kwargs)
+
+    monkeypatch.setattr(channel, "_handle_message", _capture_handle_message)
+    monkeypatch.setattr(channel, "_start_typing", lambda _chat_id: None)
+
+    update = SimpleNamespace(
+        effective_user=SimpleNamespace(id=123, username="alice", first_name="Alice"),
+        message=SimpleNamespace(
+            message_id=1,
+            chat_id=456,
+            chat=SimpleNamespace(type="private"),
+            text=None,
+            caption=None,
+            photo=[
+                SimpleNamespace(
+                    file_id="file-id-that-should-not-be-used",
+                    file_unique_id="stable-unique-id",
+                    mime_type="image/jpeg",
+                    file_name=None,
+                )
+            ],
+            voice=None,
+            audio=None,
+            document=None,
+        ),
+    )
+
+    await channel._on_message(update, None)  # type: ignore[arg-type]
+
+    assert downloaded["path"].endswith("stable-unique-id.jpg")
+    assert captured["media"] == [str(tmp_path / "media" / "stable-unique-id.jpg")]
