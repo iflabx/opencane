@@ -36,11 +36,12 @@ def test_supports_cache_control_respects_gateway_capability_flag() -> None:
     assert not aihubmix_provider._supports_cache_control("anthropic/claude-sonnet-4-5")
 
 
-def test_apply_cache_control_marks_system_and_last_tool_without_mutating_inputs() -> None:
+def test_apply_cache_control_marks_system_history_breakpoint_and_last_tool() -> None:
     provider = LiteLLMProvider(default_model="anthropic/claude-sonnet-4-5")
     messages = [
         {"role": "system", "content": "system prompt"},
         {"role": "user", "content": "hello"},
+        {"role": "assistant", "content": "answer"},
     ]
     tools = [
         {"type": "function", "function": {"name": "tool_a"}},
@@ -51,11 +52,15 @@ def test_apply_cache_control_marks_system_and_last_tool_without_mutating_inputs(
 
     assert isinstance(new_messages[0]["content"], list)
     assert new_messages[0]["content"][0]["cache_control"]["type"] == "ephemeral"
+    assert isinstance(new_messages[1]["content"], list)
+    assert new_messages[1]["content"][0]["cache_control"]["type"] == "ephemeral"
+    assert new_messages[2]["content"] == "answer"
     assert new_tools is not None
     assert new_tools[-1]["cache_control"]["type"] == "ephemeral"
 
     assert "cache_control" not in tools[-1]
     assert messages[0]["content"] == "system prompt"
+    assert messages[1]["content"] == "hello"
 
 
 @pytest.mark.asyncio
@@ -74,11 +79,12 @@ async def test_chat_injects_cache_control_for_openrouter_gateway(monkeypatch: py
         messages=[
             {"role": "system", "content": "system prompt"},
             {"role": "user", "content": "hello"},
+            {"role": "assistant", "content": "answer"},
         ],
         tools=[{"type": "function", "function": {"name": "tool_a"}}],
     )
 
     kwargs = captured["kwargs"]
     assert kwargs["messages"][0]["content"][0]["cache_control"]["type"] == "ephemeral"
+    assert kwargs["messages"][1]["content"][0]["cache_control"]["type"] == "ephemeral"
     assert kwargs["tools"][-1]["cache_control"]["type"] == "ephemeral"
-
