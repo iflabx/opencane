@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 import time
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -85,6 +87,7 @@ async def test_status_command_returns_runtime_snapshot_without_provider_call(
     assert "Subagents: 0 active" in response.content
     assert "Queue: 0 pending" in response.content
     assert "Uptime: 2m 5s" in response.content
+    assert response.metadata == {"render_as": "text"}
     assert provider.calls == 0
 
 
@@ -101,6 +104,36 @@ async def test_help_command_mentions_status(tmp_path: Path) -> None:
     )
     assert response is not None
     assert "/status" in response.content
+    assert response.metadata == {"render_as": "text"}
+
+
+@pytest.mark.asyncio
+async def test_run_intercepts_status_before_main_processing(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_CountingProvider(),
+        workspace=tmp_path,
+    )
+
+    mocked_process = AsyncMock()
+    loop._process_message = mocked_process  # type: ignore[method-assign]
+
+    await bus.publish_inbound(
+        InboundMessage(channel="cli", sender_id="u1", chat_id="chat-status", content="/status")
+    )
+
+    run_task = asyncio.create_task(loop.run())
+    try:
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.5)
+        assert "OpenCane v" in outbound.content
+        assert outbound.metadata == {"render_as": "text"}
+        mocked_process.assert_not_awaited()
+    finally:
+        loop.stop()
+        run_task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await run_task
 
 
 @pytest.mark.asyncio

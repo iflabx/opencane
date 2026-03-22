@@ -544,6 +544,7 @@ class AgentLoop:
             channel=msg.channel,
             chat_id=msg.chat_id,
             content=self._build_status_content(session),
+            metadata={"render_as": "text"},
         )
 
     async def _run_agent_loop(
@@ -691,6 +692,10 @@ class AgentLoop:
                     self.bus.consume_inbound(),
                     timeout=1.0
                 )
+                if msg.content.strip().lower() == "/status":
+                    session = self.sessions.get_or_create(msg.session_key)
+                    await self.bus.publish_outbound(self._status_response(msg, session))
+                    continue
                 try:
                     response = await self._process_message(msg)
                     if response:
@@ -795,8 +800,17 @@ class AgentLoop:
                 content="New session started. Memory archived.",
             )
         if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🦯 OpenCane commands:\n/new — Start a new conversation\n/status — Show runtime status\n/help — Show available commands")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=(
+                    "🦯 OpenCane commands:\n"
+                    "/new — Start a new conversation\n"
+                    "/status — Show runtime status\n"
+                    "/help — Show available commands"
+                ),
+                metadata={"render_as": "text"},
+            )
         if cmd == "/status":
             return self._status_response(msg, session)
 
