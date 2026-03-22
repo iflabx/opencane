@@ -224,6 +224,7 @@ class ExecToolConfig(BaseModel):
     """Shell exec tool configuration."""
     enable: bool = True
     timeout: int = 60
+    path_append: str = ""
 
 
 class MCPServerConfig(BaseModel):

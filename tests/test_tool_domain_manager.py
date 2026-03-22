@@ -7,6 +7,7 @@ import pytest
 
 from opencane.agent.loop import AgentLoop
 from opencane.agent.tools.base import Tool
+from opencane.agent.tools.shell import ExecTool
 from opencane.bus.events import InboundMessage
 from opencane.bus.queue import MessageBus
 from opencane.config.schema import ExecToolConfig
@@ -293,3 +294,17 @@ def test_agent_loop_can_disable_exec_tool(tmp_path: Path) -> None:
     )
 
     assert loop.tools.get("exec") is None
+
+
+def test_agent_loop_passes_exec_path_append_to_tool(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_SystemRoleProbeProvider(),
+        workspace=tmp_path,
+        exec_config=ExecToolConfig(enable=True, path_append="/usr/local/sbin"),
+    )
+
+    tool = loop.tools.get("exec")
+    assert isinstance(tool, ExecTool)
+    assert tool.path_append == "/usr/local/sbin"

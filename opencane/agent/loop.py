@@ -316,6 +316,7 @@ class AgentLoop:
                 working_dir=str(self.workspace),
                 timeout=self.exec_config.timeout,
                 restrict_to_workspace=self.restrict_to_workspace,
+                path_append=self.exec_config.path_append,
             ))
             self.tool_domains.register_tool(
                 "exec",

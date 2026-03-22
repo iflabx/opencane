@@ -49,6 +49,7 @@ opencane config check --strict
 - `hardware.auth.enabled`
 - `hardware.auth.token`
 - `tools.exec.enable`（关闭后不注册 shell `exec` 工具）
+- `tools.exec.pathAppend`（可选 PATH 追加目录，供 `exec` 子进程使用）
 - `tools.restrictToWorkspace`（限制工具只能访问工作区）
 - `safety.*`
 - `interaction.*`
