@@ -103,10 +103,23 @@ def _init_prompt_session() -> None:
     )
 
 
-def _print_agent_response(response: str, render_markdown: bool) -> None:
+def _response_renderable(content: str, render_markdown: bool, metadata: dict | None = None):
+    """Render command-style output as plain text even when markdown is enabled."""
+    if not render_markdown:
+        return Text(content)
+    if (metadata or {}).get("render_as") == "text":
+        return Text(content)
+    return Markdown(content)
+
+
+def _print_agent_response(
+    response: str,
+    render_markdown: bool,
+    metadata: dict | None = None,
+) -> None:
     """Render assistant response with consistent terminal styling."""
     content = response or ""
-    body = Markdown(content) if render_markdown else Text(content)
+    body = _response_renderable(content, render_markdown, metadata)
     console.print()
     console.print(f"[cyan]{__logo__} opencane[/cyan]")
     console.print(body)
@@ -896,7 +909,11 @@ def agent(
             try:
                 with _thinking_ctx():
                     response = await agent_loop.process_direct(message, session_id)
-                _print_agent_response(response.content if response else "", render_markdown=markdown)
+                _print_agent_response(
+                    response.content if response else "",
+                    render_markdown=markdown,
+                    metadata=response.metadata if response else None,
+                )
             finally:
                 await agent_loop.close_mcp()
                 if lifelog_service:
@@ -932,7 +949,11 @@ def agent(
 
                         with _thinking_ctx():
                             response = await agent_loop.process_direct(user_input, session_id)
-                        _print_agent_response(response.content if response else "", render_markdown=markdown)
+                        _print_agent_response(
+                            response.content if response else "",
+                            render_markdown=markdown,
+                            metadata=response.metadata if response else None,
+                        )
                     except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
