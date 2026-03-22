@@ -6,6 +6,7 @@ import imaplib
 import re
 import smtplib
 import ssl
+from collections import deque
 from datetime import date
 from email import policy
 from email.header import decode_header, make_header
@@ -71,6 +72,7 @@ class EmailChannel(BaseChannel):
         self._last_subject_by_chat: dict[str, str] = {}
         self._last_message_id_by_chat: dict[str, str] = {}
         self._processed_uids: set[str] = set()  # Capped to prevent unbounded growth
+        self._processed_uid_order: deque[str] = deque()
         self._MAX_PROCESSED_UIDS = 100000
 
     async def start(self) -> None:
@@ -356,10 +358,7 @@ class EmailChannel(BaseChannel):
                 if uid:
                     cycle_uids.add(uid)
                 if dedupe and uid:
-                    self._processed_uids.add(uid)
-                    # mark_seen is the primary dedup; this set is a safety net
-                    if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
-                        self._processed_uids.clear()
+                    self._remember_processed_uid(uid)
 
                 if mark_seen:
                     client.store(imap_id, "+FLAGS", "\\Seen")
@@ -378,6 +377,21 @@ class EmailChannel(BaseChannel):
     def _is_missing_mailbox_error(cls, exc: Exception) -> bool:
         message = str(exc).lower()
         return any(marker in message for marker in cls._IMAP_MISSING_MAILBOX_MARKERS)
+
+    def _remember_processed_uid(self, uid: str) -> None:
+        """Track a processed UID and evict oldest entries when over capacity."""
+        if uid in self._processed_uids:
+            return
+        self._processed_uids.add(uid)
+        self._processed_uid_order.append(uid)
+
+        if len(self._processed_uids) <= self._MAX_PROCESSED_UIDS:
+            return
+
+        keep = max(self._MAX_PROCESSED_UIDS // 2, 1)
+        while len(self._processed_uids) > keep and self._processed_uid_order:
+            stale = self._processed_uid_order.popleft()
+            self._processed_uids.discard(stale)
 
     @classmethod
     def _format_imap_date(cls, value: date) -> str:

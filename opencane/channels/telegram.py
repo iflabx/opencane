@@ -118,6 +118,23 @@ class TelegramChannel(BaseChannel):
         self._chat_ids: dict[str, int] = {}  # Map sender_id to chat_id for replies
         self._typing_tasks: dict[str, asyncio.Task] = {}  # chat_id -> typing loop task
 
+    def is_allowed(self, sender_id: str) -> bool:
+        """Preserve Telegram legacy allowlist support for sender_id|username."""
+        if super().is_allowed(sender_id):
+            return True
+
+        allow_list = getattr(self.config, "allow_from", [])
+        if not allow_list or "*" in allow_list:
+            return False
+
+        sender_str = str(sender_id)
+        if sender_str.count("|") != 1:
+            return False
+        sender_num, username = sender_str.split("|", 1)
+        if not sender_num.isdigit() or not username:
+            return False
+        return sender_num in allow_list or username in allow_list
+
     async def start(self) -> None:
         """Start the Telegram bot with long polling."""
         if not self.config.token:
@@ -438,7 +455,8 @@ class TelegramChannel(BaseChannel):
                 media_dir = get_data_path() / "media"
                 media_dir.mkdir(parents=True, exist_ok=True)
 
-                file_path = media_dir / f"{media_file.file_id[:16]}{ext}"
+                unique_id = getattr(media_file, "file_unique_id", None) or media_file.file_id[:16]
+                file_path = media_dir / f"{unique_id}{ext}"
                 await file.download_to_drive(str(file_path))
 
                 media_paths.append(str(file_path))

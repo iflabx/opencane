@@ -12,8 +12,11 @@ def _resolve_path(path: str, workspace: Path | None = None, allowed_dir: Path | 
     if not target.is_absolute() and workspace is not None:
         target = workspace / target
     resolved = target.resolve()
-    if allowed_dir and not str(resolved).startswith(str(allowed_dir.resolve())):
-        raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}")
+    if allowed_dir:
+        try:
+            resolved.relative_to(allowed_dir.resolve())
+        except ValueError:
+            raise PermissionError(f"Path {path} is outside allowed directory {allowed_dir}") from None
     return resolved
 
 

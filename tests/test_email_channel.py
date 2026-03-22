@@ -40,6 +40,17 @@ def _make_raw_email(
     return msg.as_bytes()
 
 
+def test_remember_processed_uid_evicts_oldest_half_when_capacity_exceeded() -> None:
+    channel = EmailChannel(_make_config(), MessageBus())
+    channel._MAX_PROCESSED_UIDS = 4
+
+    for uid in ("u1", "u2", "u3", "u4", "u5"):
+        channel._remember_processed_uid(uid)
+
+    assert channel._processed_uids == {"u4", "u5"}
+    assert list(channel._processed_uid_order) == ["u4", "u5"]
+
+
 def test_fetch_new_messages_parses_unseen_and_marks_seen(monkeypatch) -> None:
     raw = _make_raw_email(subject="Invoice", body="Please pay")
 

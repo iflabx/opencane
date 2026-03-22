@@ -5,6 +5,8 @@ from __future__ import annotations
 import socket
 from unittest.mock import patch
 
+import pytest
+
 from opencane.agent.tools.shell import ExecTool
 
 
@@ -52,3 +54,29 @@ def test_exec_guard_blocks_standalone_format_command() -> None:
     error = tool._guard_command("echo hi; format c:", "/tmp")
     assert error is not None
     assert "blocked by safety guard" in error
+
+
+@pytest.mark.asyncio
+async def test_exec_tool_appends_path_when_configured(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured_env: dict[str, str] = {}
+
+    class _FakeProcess:
+        returncode = 0
+
+        async def communicate(self):  # type: ignore[no-untyped-def]
+            return b"ok", b""
+
+    async def _fake_create_subprocess_shell(*args, **kwargs):  # type: ignore[no-untyped-def]
+        del args
+        env = kwargs.get("env") or {}
+        if isinstance(env, dict):
+            captured_env.update({k: str(v) for k, v in env.items() if isinstance(k, str)})
+        return _FakeProcess()
+
+    monkeypatch.setattr("opencane.agent.tools.shell.asyncio.create_subprocess_shell", _fake_create_subprocess_shell)
+    tool = ExecTool(path_append="/usr/sbin")
+
+    result = await tool.execute("echo ok")
+    assert "ok" in result
+    assert "PATH" in captured_env
+    assert captured_env["PATH"].endswith("/usr/sbin")

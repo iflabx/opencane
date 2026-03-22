@@ -62,3 +62,19 @@ async def test_read_file_tool_still_enforces_allowed_dir_with_workspace(tmp_path
     result = await read_tool.execute(path="../outside.txt")
 
     assert result.startswith("Error: Path ../outside.txt is outside allowed directory")
+
+
+@pytest.mark.asyncio
+async def test_allowed_dir_check_rejects_startswith_path_bypass(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    evil_dir = tmp_path / "workspace_evil"
+    evil_dir.mkdir(parents=True)
+    secret = evil_dir / "secret.txt"
+    secret.write_text("leak", encoding="utf-8")
+
+    read_tool = ReadFileTool(workspace=workspace, allowed_dir=workspace)
+    result = await read_tool.execute(path=str(secret))
+
+    assert result.startswith("Error: Path ")
+    assert "outside allowed directory" in result
