@@ -48,6 +48,8 @@ opencane config check --strict
 
 - `hardware.auth.enabled`
 - `hardware.auth.token`
+- `tools.exec.enable`（关闭后不注册 shell `exec` 工具）
+- `tools.restrictToWorkspace`（限制工具只能访问工作区）
 - `safety.*`
 - `interaction.*`
 
