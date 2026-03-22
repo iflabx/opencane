@@ -124,6 +124,7 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
+        self._consolidation_locks: dict[str, asyncio.Lock] = {}
         self._background_tasks: list[asyncio.Task[Any]] = []
         self._register_default_tools()
 
@@ -407,14 +408,34 @@ class AgentLoop:
         if session.key in self._consolidating:
             return
         self._consolidating.add(session.key)
+        lock = self._get_consolidation_lock(session.key)
 
         async def _run() -> None:
             try:
-                await self._consolidate_memory(session, archive_all=archive_all)
+                async with lock:
+                    await self._consolidate_memory(session, archive_all=archive_all)
             finally:
                 self._consolidating.discard(session.key)
+                self._prune_consolidation_lock(session.key)
 
         self._track_background_task(asyncio.create_task(_run()))
+
+    def _get_consolidation_lock(self, session_key: str) -> asyncio.Lock:
+        lock = self._consolidation_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._consolidation_locks[session_key] = lock
+        return lock
+
+    def _prune_consolidation_lock(self, session_key: str) -> None:
+        """Drop unused per-session lock entries to avoid unbounded growth."""
+        lock = self._consolidation_locks.get(session_key)
+        if lock is None:
+            return
+        waiters = getattr(lock, "_waiters", None)
+        if lock.locked() or bool(waiters):
+            return
+        self._consolidation_locks.pop(session_key, None)
 
     def _track_background_task(self, task: asyncio.Task[Any]) -> None:
         """Track a background task so shutdown can drain in-flight work."""
@@ -693,17 +714,39 @@ class AgentLoop:
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
-            # Capture messages before clearing (avoid race condition with background task)
-            messages_to_archive = session.messages.copy()
-            session.clear()
-            self.sessions.save(session)
-            self.sessions.invalidate(session.key)
+            lock = self._get_consolidation_lock(session.key)
+            messages_to_archive: list[dict[str, Any]] = []
+            archive_succeeded = True
+            try:
+                async with lock:
+                    messages_to_archive = session.messages[session.last_consolidated:].copy()
+                    if messages_to_archive:
+                        temp_session = Session(key=session.key)
+                        temp_session.messages = messages_to_archive
+                        archive_succeeded = await self._consolidate_memory(
+                            temp_session,
+                            archive_all=True,
+                        )
+                    if not archive_succeeded:
+                        return OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content=(
+                                "Could not start a new session because memory archival failed. "
+                                "Please try again."
+                            ),
+                        )
+                    session.clear()
+                    self.sessions.save(session)
+                    self.sessions.invalidate(session.key)
+            finally:
+                self._prune_consolidation_lock(session.key)
 
-            temp_session = Session(key=session.key)
-            temp_session.messages = messages_to_archive
-            self._schedule_consolidation(temp_session, archive_all=True)
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started. Memory consolidation in progress.")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="New session started. Memory archived.",
+            )
         if cmd == "/help":
             return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
                                   content="🦯 OpenCane commands:\n/new — Start a new conversation\n/help — Show available commands")
@@ -712,6 +755,9 @@ class AgentLoop:
             self._schedule_consolidation(session)
 
         self._set_tool_context(msg.channel, msg.chat_id)
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                message_tool.start_turn()
         memory_context = await self._build_prompt_memory_context(
             query=msg.content,
             session_key=key,
@@ -768,6 +814,19 @@ class AgentLoop:
         except Exception as e:
             logger.debug(f"layered memory record_turn failed: {e}")
         self.sessions.save(session)
+
+        suppress_final_reply = False
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                sent_targets = set(message_tool.get_turn_sends())
+                suppress_final_reply = (msg.channel, msg.chat_id) in sent_targets
+
+        if suppress_final_reply:
+            logger.info(
+                "Skipping final auto-reply because message tool already sent to "
+                f"{msg.channel}:{msg.chat_id} in this turn"
+            )
+            return None
 
         return OutboundMessage(
             channel=msg.channel,
@@ -850,7 +909,7 @@ class AgentLoop:
             content=final_content
         )
 
-    async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
+    async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:
         """Consolidate old messages into MEMORY.md + HISTORY.md.
 
         Args:
@@ -867,16 +926,16 @@ class AgentLoop:
             keep_count = self.memory_window // 2
             if len(session.messages) <= keep_count:
                 logger.debug(f"Session {session.key}: No consolidation needed (messages={len(session.messages)}, keep={keep_count})")
-                return
+                return True
 
             messages_to_process = len(session.messages) - session.last_consolidated
             if messages_to_process <= 0:
                 logger.debug(f"Session {session.key}: No new messages to consolidate (last_consolidated={session.last_consolidated}, total={len(session.messages)})")
-                return
+                return True
 
             old_messages = session.messages[session.last_consolidated:-keep_count]
             if not old_messages:
-                return
+                return True
             logger.info(f"Memory consolidation started: {len(session.messages)} total, {len(old_messages)} new to consolidate, {keep_count} keep")
 
         lines = []
@@ -921,13 +980,13 @@ Respond with ONLY valid JSON, no markdown fences."""
             text = (response.content or "").strip()
             if not text:
                 logger.warning("Memory consolidation: LLM returned empty response, skipping")
-                return
+                return False
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             result = json_repair.loads(text)
             if not isinstance(result, dict):
                 logger.warning(f"Memory consolidation: unexpected response type, skipping. Response: {text[:200]}")
-                return
+                return False
 
             if entry := result.get("history_entry"):
                 if not isinstance(entry, str):
@@ -944,8 +1003,10 @@ Respond with ONLY valid JSON, no markdown fences."""
             else:
                 session.last_consolidated = len(session.messages) - keep_count
             logger.info(f"Memory consolidation done: {len(session.messages)} messages, last_consolidated={session.last_consolidated}")
+            return True
         except Exception as e:
             logger.error(f"Memory consolidation failed: {e}")
+            return False
 
     async def process_direct(
         self,

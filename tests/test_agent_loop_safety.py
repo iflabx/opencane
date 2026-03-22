@@ -206,7 +206,7 @@ async def test_agent_loop_message_tool_outbound_is_safety_filtered(tmp_path: Pat
         channel="cli",
         chat_id="chat-99",
     )
-    assert result.startswith("safe:")
+    assert result == ""
     outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
     assert outbound.channel == "cli"
     assert outbound.chat_id == "chat-99"
