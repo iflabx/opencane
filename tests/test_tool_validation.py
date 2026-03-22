@@ -86,3 +86,38 @@ async def test_registry_returns_validation_error() -> None:
     reg.register(SampleTool())
     result = await reg.execute("sample", {"query": "hi"})
     assert "Invalid parameters" in result
+
+
+class NullableTool(Tool):
+    @property
+    def name(self) -> str:
+        return "nullable"
+
+    @property
+    def description(self) -> str:
+        return "nullable tool"
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "null"]},
+                "nickname": {"type": "string", "nullable": True},
+            },
+        }
+
+    async def execute(self, **kwargs: Any) -> str:
+        return "ok"
+
+
+def test_validate_nullable_type_union_accepts_none() -> None:
+    tool = NullableTool()
+    errors = tool.validate_params({"name": None})
+    assert errors == []
+
+
+def test_validate_nullable_flag_accepts_none() -> None:
+    tool = NullableTool()
+    errors = tool.validate_params({"nickname": None})
+    assert errors == []

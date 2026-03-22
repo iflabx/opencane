@@ -12,6 +12,8 @@ class _FakeSlackWebClient:
     def __init__(self) -> None:
         self.chat_calls: list[dict] = []
         self.file_calls: list[dict] = []
+        self.reactions_add_calls: list[dict] = []
+        self.reactions_remove_calls: list[dict] = []
 
     async def chat_postMessage(self, **kwargs):  # type: ignore[no-untyped-def]  # noqa: N802
         self.chat_calls.append(kwargs)
@@ -19,6 +21,14 @@ class _FakeSlackWebClient:
 
     async def files_upload_v2(self, **kwargs):  # type: ignore[no-untyped-def]
         self.file_calls.append(kwargs)
+        return None
+
+    async def reactions_add(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.reactions_add_calls.append(kwargs)
+        return None
+
+    async def reactions_remove(self, **kwargs):  # type: ignore[no-untyped-def]
+        self.reactions_remove_calls.append(kwargs)
         return None
 
 
@@ -63,3 +73,36 @@ async def test_slack_send_does_not_thread_in_dm_and_skips_empty_text() -> None:
     assert fake_client.chat_calls == []
     assert len(fake_client.file_calls) == 1
     assert fake_client.file_calls[0]["thread_ts"] is None
+
+
+@pytest.mark.asyncio
+async def test_slack_send_updates_reaction_when_final_response_sent() -> None:
+    channel = SlackChannel(
+        config=SlackConfig(enabled=True, react_emoji="eyes", done_emoji="white_check_mark"),
+        bus=MessageBus(),
+    )
+    fake_client = _FakeSlackWebClient()
+    channel._web_client = fake_client  # type: ignore[assignment]
+
+    await channel.send(
+        OutboundMessage(
+            channel="slack",
+            chat_id="C123",
+            content="done",
+            metadata={
+                "slack": {
+                    "event": {"ts": "1700000000.000100"},
+                    "channel_type": "channel",
+                }
+            },
+        )
+    )
+
+    assert fake_client.reactions_remove_calls == [
+        {"channel": "C123", "name": "eyes", "timestamp": "1700000000.000100"}
+    ]
+    assert fake_client.reactions_add_calls[-1] == {
+        "channel": "C123",
+        "name": "white_check_mark",
+        "timestamp": "1700000000.000100",
+    }

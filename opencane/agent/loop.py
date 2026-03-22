@@ -124,6 +124,7 @@ class AgentLoop:
         self._mcp_connected = False
         self._mcp_connecting = False
         self._consolidating: set[str] = set()  # Session keys with consolidation in progress
+        self._background_tasks: list[asyncio.Task[Any]] = []
         self._register_default_tools()
 
     def _should_apply_safety(
@@ -270,30 +271,30 @@ class AgentLoop:
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        # File tools (restrict to workspace if configured)
+        # File tools (workspace for relative paths, restrict if configured)
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
+        self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "read_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
+        self.tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "write_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(EditFileTool(allowed_dir=allowed_dir))
+        self.tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "edit_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(ListDirTool(allowed_dir=allowed_dir))
+        self.tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "list_dir",
             domain="server_tools",
@@ -413,7 +414,19 @@ class AgentLoop:
             finally:
                 self._consolidating.discard(session.key)
 
-        asyncio.create_task(_run())
+        self._track_background_task(asyncio.create_task(_run()))
+
+    def _track_background_task(self, task: asyncio.Task[Any]) -> None:
+        """Track a background task so shutdown can drain in-flight work."""
+        self._background_tasks.append(task)
+
+        def _remove(done: asyncio.Task[Any]) -> None:
+            try:
+                self._background_tasks.remove(done)
+            except ValueError:
+                pass
+
+        task.add_done_callback(_remove)
 
     async def _build_prompt_memory_context(
         self,
@@ -602,9 +615,19 @@ class AgentLoop:
                     ))
             except asyncio.TimeoutError:
                 continue
+            except asyncio.CancelledError:
+                # Preserve real task cancellation so shutdown can complete cleanly.
+                # Ignore non-task CancelledError signals that may leak from integrations.
+                if not self._running or asyncio.current_task().cancelling():
+                    raise
+                continue
 
     async def close_mcp(self) -> None:
-        """Close MCP connections."""
+        """Drain background tasks, then close MCP connections."""
+        if self._background_tasks:
+            pending = list(self._background_tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
         if self._mcp_stack:
             try:
                 await self._mcp_stack.aclose()
@@ -766,6 +789,7 @@ class AgentLoop:
             channel=origin_channel,
             chat_id=origin_chat_id,
             memory_context_override=memory_context,
+            current_role="assistant" if msg.sender_id == "subagent" else "user",
         )
         final_content, _ = await self._run_agent_loop(
             initial_messages,
@@ -849,6 +873,14 @@ class AgentLoop:
 
 2. "memory_update": The updated long-term memory content. Add any new facts: user location, preferences, personal info, habits, project context, technical decisions, tools/services used. If nothing new, return the existing content unchanged.
 
+Both values MUST be strings, not objects or arrays.
+
+Example:
+{{
+  "history_entry": "[2026-03-21 12:10] User asked about ...",
+  "memory_update": "- Device: EC600MCNLE\\n- Prefers concise answers"
+}}
+
 ## Current Long-term Memory
 {current_memory or "(empty)"}
 
@@ -877,8 +909,12 @@ Respond with ONLY valid JSON, no markdown fences."""
                 return
 
             if entry := result.get("history_entry"):
+                if not isinstance(entry, str):
+                    entry = json.dumps(entry, ensure_ascii=False)
                 memory.append_history(entry)
             if update := result.get("memory_update"):
+                if not isinstance(update, str):
+                    update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
                     memory.write_long_term(update)
 

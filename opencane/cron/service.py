@@ -10,7 +10,14 @@ from typing import Any, Callable, Coroutine
 
 from loguru import logger
 
-from opencane.cron.types import CronJob, CronJobState, CronPayload, CronSchedule, CronStore
+from opencane.cron.types import (
+    CronJob,
+    CronJobState,
+    CronPayload,
+    CronRunRecord,
+    CronSchedule,
+    CronStore,
+)
 
 
 def _now_ms() -> int:
@@ -45,13 +52,29 @@ def _compute_next_run(schedule: CronSchedule, now_ms: int) -> int | None:
     return None
 
 
+def _validate_schedule_for_add(schedule: CronSchedule) -> None:
+    """Validate schedule fields before persisting a new job."""
+    if schedule.tz and schedule.kind != "cron":
+        raise ValueError("tz can only be used with cron schedules")
+
+    if schedule.kind == "cron" and schedule.tz:
+        try:
+            from zoneinfo import ZoneInfo
+
+            ZoneInfo(schedule.tz)
+        except Exception:
+            raise ValueError(f"unknown timezone '{schedule.tz}'") from None
+
+
 class CronService:
     """Service for managing and executing scheduled jobs."""
+
+    _MAX_RUN_HISTORY = 20
 
     def __init__(
         self,
         store_path: Path,
-        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None
+        on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
     ):
         self.store_path = store_path
         self.on_job = on_job  # Callback to execute job, returns response text
@@ -92,6 +115,15 @@ class CronService:
                             last_run_at_ms=j.get("state", {}).get("lastRunAtMs"),
                             last_status=j.get("state", {}).get("lastStatus"),
                             last_error=j.get("state", {}).get("lastError"),
+                            run_history=[
+                                CronRunRecord(
+                                    run_at_ms=r["runAtMs"],
+                                    status=r["status"],
+                                    duration_ms=r.get("durationMs", 0),
+                                    error=r.get("error"),
+                                )
+                                for r in j.get("state", {}).get("runHistory", [])
+                            ],
                         ),
                         created_at_ms=j.get("createdAtMs", 0),
                         updated_at_ms=j.get("updatedAtMs", 0),
@@ -139,6 +171,15 @@ class CronService:
                         "lastRunAtMs": j.state.last_run_at_ms,
                         "lastStatus": j.state.last_status,
                         "lastError": j.state.last_error,
+                        "runHistory": [
+                            {
+                                "runAtMs": r.run_at_ms,
+                                "status": r.status,
+                                "durationMs": r.duration_ms,
+                                "error": r.error,
+                            }
+                            for r in j.state.run_history
+                        ],
                     },
                     "createdAtMs": j.created_at_ms,
                     "updatedAtMs": j.updated_at_ms,
@@ -237,8 +278,18 @@ class CronService:
             job.state.last_error = str(e)
             logger.error(f"Cron: job '{job.name}' failed: {e}")
 
+        end_ms = _now_ms()
         job.state.last_run_at_ms = start_ms
-        job.updated_at_ms = _now_ms()
+        job.updated_at_ms = end_ms
+        job.state.run_history.append(
+            CronRunRecord(
+                run_at_ms=start_ms,
+                status=job.state.last_status,
+                duration_ms=end_ms - start_ms,
+                error=job.state.last_error,
+            )
+        )
+        job.state.run_history = job.state.run_history[-self._MAX_RUN_HISTORY :]
 
         # Handle one-shot jobs
         if job.schedule.kind == "at":
@@ -271,6 +322,7 @@ class CronService:
     ) -> CronJob:
         """Add a new job."""
         store = self._load_store()
+        _validate_schedule_for_add(schedule)
         now = _now_ms()
 
         job = CronJob(
@@ -340,6 +392,11 @@ class CronService:
                 self._arm_timer()
                 return True
         return False
+
+    def get_job(self, job_id: str) -> CronJob | None:
+        """Get a job by ID."""
+        store = self._load_store()
+        return next((j for j in store.jobs if j.id == job_id), None)
 
     def status(self) -> dict:
         """Get service status."""

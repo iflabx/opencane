@@ -4,9 +4,11 @@ from __future__ import annotations
 
 import asyncio
 import re
+from pathlib import Path
 
 from loguru import logger
 from telegram import BotCommand, Update
+from telegram.error import TimedOut
 from telegram.ext import Application, CommandHandler, ContextTypes, MessageHandler, filters
 from telegram.request import HTTPXRequest
 
@@ -15,9 +17,12 @@ from opencane.bus.queue import MessageBus
 from opencane.channels.base import BaseChannel
 from opencane.channels.text_split import split_message
 from opencane.config.schema import TelegramConfig
+from opencane.security.network import validate_url_target
 from opencane.utils.helpers import get_data_path
 
 MAX_TEXT_LENGTH = 4000  # Telegram hard limit is 4096; keep margin for safety.
+_SEND_MAX_RETRIES = 3
+_SEND_RETRY_BASE_DELAY = 0.5
 
 
 def _markdown_to_telegram_html(text: str) -> str:
@@ -120,11 +125,28 @@ class TelegramChannel(BaseChannel):
 
         self._running = True
 
-        # Build the application with larger connection pool to avoid pool-timeout on long runs
-        req = HTTPXRequest(connection_pool_size=16, pool_timeout=5.0, connect_timeout=30.0, read_timeout=30.0)
-        builder = Application.builder().token(self.config.token).request(req).get_updates_request(req)
-        if self.config.proxy:
-            builder = builder.proxy(self.config.proxy).get_updates_proxy(self.config.proxy)
+        proxy = self.config.proxy or None
+        # Separate pools so long polling doesn't starve outbound API calls.
+        api_request = HTTPXRequest(
+            connection_pool_size=self.config.connection_pool_size,
+            pool_timeout=self.config.pool_timeout,
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            proxy=proxy,
+        )
+        poll_request = HTTPXRequest(
+            connection_pool_size=4,
+            pool_timeout=self.config.pool_timeout,
+            connect_timeout=30.0,
+            read_timeout=30.0,
+            proxy=proxy,
+        )
+        builder = (
+            Application.builder()
+            .token(self.config.token)
+            .request(api_request)
+            .get_updates_request(poll_request)
+        )
         self._app = builder.build()
         self._app.add_error_handler(self._on_error)
 
@@ -209,6 +231,26 @@ class TelegramChannel(BaseChannel):
                 except (TypeError, ValueError):
                     logger.debug(f"Telegram reply_to is not a valid message id: {reply_to}")
 
+        media_paths = [p for p in (msg.media or []) if isinstance(p, str) and p.strip()]
+        for media_path in media_paths:
+            try:
+                await self._send_media(chat_id, media_path, reply_to_message_id)
+            except Exception as e:
+                filename = Path(media_path).name or "media"
+                logger.error(f"Failed to send media {media_path}: {e}")
+                fallback_reply_kwargs: dict[str, int | bool] = {}
+                if reply_to_message_id is not None:
+                    fallback_reply_kwargs = {
+                        "reply_to_message_id": reply_to_message_id,
+                        "allow_sending_without_reply": True,
+                    }
+                await self._call_with_retry(
+                    self._app.bot.send_message,
+                    chat_id=chat_id,
+                    text=f"[Failed to send: {filename}]",
+                    **fallback_reply_kwargs,
+                )
+
         chunks = split_message(msg.content or "", max_len=MAX_TEXT_LENGTH)
         if not chunks:
             return
@@ -222,7 +264,8 @@ class TelegramChannel(BaseChannel):
                 }
             try:
                 html_content = _markdown_to_telegram_html(chunk)
-                await self._app.bot.send_message(
+                await self._call_with_retry(
+                    self._app.bot.send_message,
                     chat_id=chat_id,
                     text=html_content,
                     parse_mode="HTML",
@@ -232,13 +275,83 @@ class TelegramChannel(BaseChannel):
                 # Fallback to plain text if HTML parsing fails
                 logger.warning(f"HTML parse failed for chunk {i + 1}, falling back to plain text: {e}")
                 try:
-                    await self._app.bot.send_message(
+                    await self._call_with_retry(
+                        self._app.bot.send_message,
                         chat_id=chat_id,
                         text=chunk,
                         **reply_kwargs,
                     )
                 except Exception as e2:
                     logger.error(f"Error sending Telegram chunk {i + 1}: {e2}")
+
+    @staticmethod
+    def _get_outbound_media_type(path: str) -> str:
+        """Guess Telegram media type from extension."""
+        ext = Path(path).suffix.lower()
+        if ext in (".jpg", ".jpeg", ".png", ".gif", ".webp"):
+            return "photo"
+        if ext == ".ogg":
+            return "voice"
+        if ext in (".mp3", ".m4a", ".wav", ".aac"):
+            return "audio"
+        return "document"
+
+    @staticmethod
+    def _is_remote_media_url(path: str) -> bool:
+        return path.startswith(("http://", "https://"))
+
+    async def _send_media(self, chat_id: int, media_path: str, reply_to_message_id: int | None) -> None:
+        media_type = self._get_outbound_media_type(media_path)
+        sender = {
+            "photo": self._app.bot.send_photo,
+            "voice": self._app.bot.send_voice,
+            "audio": self._app.bot.send_audio,
+        }.get(media_type, self._app.bot.send_document)
+        param = media_type if media_type in ("photo", "voice", "audio") else "document"
+
+        reply_kwargs: dict[str, int | bool] = {}
+        if reply_to_message_id is not None:
+            reply_kwargs = {
+                "reply_to_message_id": reply_to_message_id,
+                "allow_sending_without_reply": True,
+            }
+
+        if self._is_remote_media_url(media_path):
+            ok, error = validate_url_target(media_path)
+            if not ok:
+                raise ValueError(f"unsafe media URL: {error}")
+            await self._call_with_retry(
+                sender,
+                chat_id=chat_id,
+                **{param: media_path},
+                **reply_kwargs,
+            )
+            return
+
+        with open(media_path, "rb") as media_file:
+            await self._call_with_retry(
+                sender,
+                chat_id=chat_id,
+                **{param: media_file},
+                **reply_kwargs,
+            )
+
+    async def _call_with_retry(self, fn, *args, **kwargs):  # type: ignore[no-untyped-def]
+        """Call Telegram API with retry on timeout."""
+        for attempt in range(1, _SEND_MAX_RETRIES + 1):
+            try:
+                return await fn(*args, **kwargs)
+            except TimedOut:
+                if attempt == _SEND_MAX_RETRIES:
+                    raise
+                delay = _SEND_RETRY_BASE_DELAY * (2 ** (attempt - 1))
+                logger.warning(
+                    "Telegram timeout (attempt {}/{}), retrying in {:.1f}s",
+                    attempt,
+                    _SEND_MAX_RETRIES,
+                    delay,
+                )
+                await asyncio.sleep(delay)
 
     async def _on_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Handle /start command."""
@@ -252,12 +365,18 @@ class TelegramChannel(BaseChannel):
             "Type /help to see available commands."
         )
 
+    @staticmethod
+    def _sender_id(user) -> str:  # type: ignore[no-untyped-def]
+        """Build sender_id with username for allowlist compatibility."""
+        sender_id = str(user.id)
+        return f"{sender_id}|{user.username}" if user.username else sender_id
+
     async def _forward_command(self, update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         """Forward slash commands to the bus for unified handling in AgentLoop."""
         if not update.message or not update.effective_user:
             return
         await self._handle_message(
-            sender_id=str(update.effective_user.id),
+            sender_id=self._sender_id(update.effective_user),
             chat_id=str(update.message.chat_id),
             content=update.message.text,
         )
@@ -271,10 +390,7 @@ class TelegramChannel(BaseChannel):
         user = update.effective_user
         chat_id = message.chat_id
 
-        # Use stable numeric ID, but keep username for allowlist compatibility
-        sender_id = str(user.id)
-        if user.username:
-            sender_id = f"{sender_id}|{user.username}"
+        sender_id = self._sender_id(user)
 
         # Store chat_id for replies
         self._chat_ids[sender_id] = chat_id
@@ -310,7 +426,11 @@ class TelegramChannel(BaseChannel):
         if media_file and self._app:
             try:
                 file = await self._app.bot.get_file(media_file.file_id)
-                ext = self._get_extension(media_type, getattr(media_file, 'mime_type', None))
+                ext = self._get_extension(
+                    media_type,
+                    getattr(media_file, "mime_type", None),
+                    getattr(media_file, "file_name", None),
+                )
 
                 # Save to workspace/media/
                 media_dir = get_data_path() / "media"
@@ -390,8 +510,8 @@ class TelegramChannel(BaseChannel):
         """Log polling / handler errors instead of silently swallowing them."""
         logger.error(f"Telegram error: {context.error}")
 
-    def _get_extension(self, media_type: str, mime_type: str | None) -> str:
-        """Get file extension based on media type."""
+    def _get_extension(self, media_type: str, mime_type: str | None, filename: str | None = None) -> str:
+        """Get file extension based on media type, falling back to source filename."""
         if mime_type:
             ext_map = {
                 "image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif",
@@ -400,5 +520,8 @@ class TelegramChannel(BaseChannel):
             if mime_type in ext_map:
                 return ext_map[mime_type]
 
-        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3", "file": ""}
-        return type_map.get(media_type, "")
+        type_map = {"image": ".jpg", "voice": ".ogg", "audio": ".mp3"}
+        if media_type in type_map:
+            return type_map[media_type]
+
+        return Path(filename).suffix if filename else ""

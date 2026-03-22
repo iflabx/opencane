@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from opencane.agent.loop import AgentLoop
+from opencane.bus.events import InboundMessage
 from opencane.bus.queue import MessageBus
 from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
@@ -109,6 +110,20 @@ class _FakeLifelogService:
     def record_runtime_event(self, **kwargs: Any) -> int:
         self.runtime_events.append(dict(kwargs))
         return len(self.runtime_events)
+
+
+class _SpuriousCancelledBus(MessageBus):
+    """Message bus that raises a one-off spurious CancelledError on inbound consume."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._raised = False
+
+    async def consume_inbound(self) -> InboundMessage:
+        if not self._raised:
+            self._raised = True
+            raise asyncio.CancelledError()
+        return await super().consume_inbound()
 
 
 @pytest.mark.asyncio
@@ -234,3 +249,45 @@ async def test_agent_loop_process_direct_injects_runtime_context_block(tmp_path:
     assert "device_id: dev-1" in system_prompt
     assert "trace_id: trace-ctx-1" in system_prompt
     assert "battery" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_run_ignores_spurious_cancelled_error(tmp_path: Path) -> None:
+    bus = _SpuriousCancelledBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_FakeProvider("ok"),
+        workspace=tmp_path,
+    )
+    task = asyncio.create_task(loop.run())
+    try:
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="cli",
+                sender_id="user-1",
+                chat_id="chat-1",
+                content="hello",
+            )
+        )
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=2.0)
+        assert outbound.content == "ok"
+    finally:
+        loop.stop()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_run_respects_task_cancellation(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_FakeProvider("ok"),
+        workspace=tmp_path,
+    )
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

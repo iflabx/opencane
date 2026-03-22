@@ -28,6 +28,7 @@ from opencane.utils.helpers import get_data_path
 
 app = typer.Typer(
     name="opencane",
+    context_settings={"help_option_names": ["-h", "--help"]},
     help=f"{__logo__} opencane - Personal AI Assistant",
     no_args_is_help=True,
 )
@@ -319,11 +320,12 @@ def onboard():
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        config = Config()
+        save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Create workspace
-    workspace = get_workspace_path()
+    workspace = get_workspace_path(config.workspace_path)
 
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
@@ -713,7 +715,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting opencane gateway on port {port}...")
+    console.print(f"{__logo__} Starting opencane gateway version {__version__} on port {port}...")
 
     config = load_config()
     safety_policy = SafetyPolicy.from_config(config)
@@ -1191,6 +1193,7 @@ def cron_add(
     message: str = typer.Option(..., "--message", "-m", help="Message for agent"),
     every: int = typer.Option(None, "--every", "-e", help="Run every N seconds"),
     cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron expression (e.g. '0 9 * * *')"),
+    tz: str = typer.Option(None, "--tz", help="Timezone for cron expression (e.g. 'America/Vancouver')"),
     at: str = typer.Option(None, "--at", help="Run once at time (ISO format)"),
     deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
     to: str = typer.Option(None, "--to", help="Recipient for delivery"),
@@ -1205,7 +1208,7 @@ def cron_add(
     if every:
         schedule = CronSchedule(kind="every", every_ms=every * 1000)
     elif cron_expr:
-        schedule = CronSchedule(kind="cron", expr=cron_expr)
+        schedule = CronSchedule(kind="cron", expr=cron_expr, tz=tz)
     elif at:
         import datetime
         dt = datetime.datetime.fromisoformat(at)
@@ -1217,14 +1220,18 @@ def cron_add(
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
 
-    job = service.add_job(
-        name=name,
-        schedule=schedule,
-        message=message,
-        deliver=deliver,
-        to=to,
-        channel=channel,
-    )
+    try:
+        job = service.add_job(
+            name=name,
+            schedule=schedule,
+            message=message,
+            deliver=deliver,
+            to=to,
+            channel=channel,
+        )
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
 
     console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id})")
 
@@ -1272,17 +1279,62 @@ def cron_run(
     force: bool = typer.Option(False, "--force", "-f", help="Run even if disabled"),
 ):
     """Manually run a job."""
-    from opencane.config.loader import get_data_dir
+    from loguru import logger
+
+    from opencane.agent.loop import AgentLoop
+    from opencane.bus.queue import MessageBus
+    from opencane.config.loader import get_data_dir, load_config
     from opencane.cron.service import CronService
+    from opencane.safety.policy import SafetyPolicy
+
+    logger.disable("opencane")
+    config = load_config()
+    provider = _make_provider(config)
+    safety_policy = SafetyPolicy.from_config(config)
+    bus = MessageBus()
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=config.workspace_path,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        max_iterations=config.agents.defaults.max_tool_iterations,
+        memory_window=config.agents.defaults.memory_window,
+        brave_api_key=config.tools.web.search.api_key or None,
+        exec_config=config.tools.exec,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        mcp_servers=config.tools.mcp_servers,
+        safety_policy=safety_policy,
+        max_subagents=config.agents.defaults.max_subagents,
+    )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
+    result_holder: list[str] = []
+
+    async def on_job(job) -> str | None:  # type: ignore[no-untyped-def]
+        response = await agent_loop.process_direct(
+            job.payload.message,
+            session_key=f"cron:{job.id}",
+            channel=job.payload.channel or "cli",
+            chat_id=job.payload.to or "direct",
+        )
+        result_holder.append(response)
+        return response
+
+    service.on_job = on_job
 
     async def run():
-        return await service.run_job(job_id, force=force)
+        try:
+            return await service.run_job(job_id, force=force)
+        finally:
+            await agent_loop.close_mcp()
 
     if asyncio.run(run()):
         console.print("[green]✓[/green] Job executed")
+        if result_holder:
+            _print_agent_response(result_holder[0], render_markdown=True)
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
 
