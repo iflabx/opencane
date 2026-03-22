@@ -31,7 +31,12 @@ def _make_bot_class(channel: "QQChannel") -> "type[botpy.Client]":
 
     class _Bot(botpy.Client):
         def __init__(self):
-            super().__init__(intents=intents)
+            # Disable botpy file handler by default; it can fail under read-only
+            # service environments where cwd is not writable.
+            try:
+                super().__init__(intents=intents, ext_handlers=False)
+            except TypeError:
+                super().__init__(intents=intents)
 
         async def on_ready(self):
             logger.info(f"QQ bot ready: {self.robot.name}")
@@ -55,7 +60,6 @@ class QQChannel(BaseChannel):
         self.config: QQConfig = config
         self._client: "botpy.Client | None" = None
         self._processed_ids: deque = deque(maxlen=1000)
-        self._bot_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start the QQ bot."""
@@ -71,14 +75,17 @@ class QQChannel(BaseChannel):
         bot_class = _make_bot_class(self)
         self._client = bot_class()
 
-        self._bot_task = asyncio.create_task(self._run_bot())
         logger.info("QQ bot started (C2C private message)")
+        await self._run_bot()
 
     async def _run_bot(self) -> None:
         """Run the bot connection with auto-reconnect."""
         while self._running:
             try:
-                await self._client.start(appid=self.config.app_id, secret=self.config.secret)
+                client = self._client
+                if client is None:
+                    break
+                await client.start(appid=self.config.app_id, secret=self.config.secret)
             except Exception as e:
                 logger.warning(f"QQ bot error: {e}")
             if self._running:
@@ -88,11 +95,10 @@ class QQChannel(BaseChannel):
     async def stop(self) -> None:
         """Stop the QQ bot."""
         self._running = False
-        if self._bot_task:
-            self._bot_task.cancel()
+        if self._client:
             try:
-                await self._bot_task
-            except asyncio.CancelledError:
+                await self._client.close()
+            except Exception:
                 pass
         logger.info("QQ bot stopped")
 
@@ -130,5 +136,5 @@ class QQChannel(BaseChannel):
                 content=content,
                 metadata={"message_id": data.id},
             )
-        except Exception as e:
-            logger.error(f"Error handling QQ message: {e}")
+        except Exception:
+            logger.exception("Error handling QQ message")

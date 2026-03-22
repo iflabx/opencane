@@ -1,5 +1,6 @@
 """File system tools: read, write, edit."""
 
+import difflib
 from pathlib import Path
 from typing import Any
 
@@ -153,7 +154,7 @@ class EditFileTool(Tool):
             content = file_path.read_text(encoding="utf-8")
 
             if old_text not in content:
-                return "Error: old_text not found in file. Make sure it matches exactly."
+                return self._not_found_message(old_text, content, path)
 
             # Count occurrences
             count = content.count(old_text)
@@ -168,6 +169,39 @@ class EditFileTool(Tool):
             return f"Error: {e}"
         except Exception as e:
             return f"Error editing file: {str(e)}"
+
+    @staticmethod
+    def _not_found_message(old_text: str, content: str, path: str) -> str:
+        """Build a helpful error when old_text is not found."""
+        old_lines = old_text.splitlines(keepends=True)
+        lines = content.splitlines(keepends=True)
+        window = max(1, len(old_lines))
+
+        best_ratio = 0.0
+        best_start = 0
+        for idx in range(max(1, len(lines) - window + 1)):
+            chunk = lines[idx : idx + window]
+            ratio = difflib.SequenceMatcher(None, old_lines, chunk).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_start = idx
+
+        if best_ratio >= 0.5:
+            best_chunk = lines[best_start : best_start + window]
+            diff = difflib.unified_diff(
+                old_lines,
+                best_chunk,
+                fromfile="old_text (provided)",
+                tofile=f"{path} (actual, line {best_start + 1})",
+                lineterm="",
+            )
+            return (
+                f"Error: old_text not found in {path}.\n"
+                f"Best match ({best_ratio:.0%} similar) at line {best_start + 1}:\n"
+                + "\n".join(diff)
+            )
+
+        return f"Error: old_text not found in {path}. No similar text found."
 
 
 class ListDirTool(Tool):

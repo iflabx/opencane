@@ -1,12 +1,16 @@
 """MCP client: connects to MCP servers and wraps their tools as native OpenCane tools."""
 
+import asyncio
 from contextlib import AsyncExitStack
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from opencane.agent.tools.base import Tool
 from opencane.agent.tools.registry import ToolRegistry
+
+MCP_TOOL_TIMEOUT = 30
 
 
 def _extract_nullable_branch(options: Any) -> tuple[dict[str, Any], bool] | None:
@@ -95,7 +99,14 @@ class MCPToolWrapper(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
-        result = await self._session.call_tool(self._original_name, arguments=kwargs)
+        try:
+            result = await asyncio.wait_for(
+                self._session.call_tool(self._original_name, arguments=kwargs),
+                timeout=MCP_TOOL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("MCP tool '{}' timed out after {}s", self._name, MCP_TOOL_TIMEOUT)
+            return f"(MCP tool call timed out after {MCP_TOOL_TIMEOUT}s)"
         parts = []
         for block in result.content:
             if isinstance(block, types.TextContent):
@@ -121,8 +132,11 @@ async def connect_mcp_servers(
                 read, write = await stack.enter_async_context(stdio_client(params))
             elif cfg.url:
                 from mcp.client.streamable_http import streamable_http_client
+                http_client = await stack.enter_async_context(
+                    httpx.AsyncClient(follow_redirects=True, timeout=None)
+                )
                 read, write, _ = await stack.enter_async_context(
-                    streamable_http_client(cfg.url)
+                    streamable_http_client(cfg.url, http_client=http_client)
                 )
             else:
                 logger.warning(f"MCP server '{name}': no command or url configured, skipping")
