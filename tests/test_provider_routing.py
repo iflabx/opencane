@@ -1,5 +1,5 @@
 from opencane.config.schema import Config
-from opencane.providers.registry import find_by_model
+from opencane.providers.registry import find_by_model, find_gateway
 
 
 def test_find_by_model_prefers_explicit_prefix_over_keyword_match() -> None:
@@ -16,3 +16,17 @@ def test_config_match_prefers_explicit_prefix_when_multiple_provider_keys_presen
 
     assert cfg.get_provider_name() == "deepseek"
 
+
+def test_find_gateway_detects_siliconflow_by_api_base_keyword() -> None:
+    spec = find_gateway(api_base="https://api.siliconflow.cn/v1")
+    assert spec is not None
+    assert spec.name == "siliconflow"
+
+
+def test_config_uses_siliconflow_gateway_defaults() -> None:
+    cfg = Config()
+    cfg.agents.defaults.model = "siliconflow/Qwen/Qwen2.5-14B-Instruct"
+    cfg.providers.siliconflow.api_key = "sf-key"
+
+    assert cfg.get_provider_name() == "siliconflow"
+    assert cfg.get_api_base() == "https://api.siliconflow.cn/v1"
