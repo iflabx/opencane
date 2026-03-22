@@ -1065,7 +1065,7 @@ Respond with ONLY valid JSON, no markdown fences."""
         blocked_tool_names: set[str] | None = None,
         require_tool_use: bool = False,
         message_metadata: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> OutboundMessage | None:
         """
         Process a message directly (for CLI or cron usage).
 
@@ -1078,7 +1078,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             message_metadata: Optional per-message metadata for context injection.
 
         Returns:
-            The agent's response.
+            The agent's outbound response envelope.
         """
         await self._connect_mcp()
         msg = InboundMessage(
@@ -1096,7 +1096,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             blocked_tool_names=blocked_tool_names,
             require_tool_use=require_tool_use,
         )
-        return response.content if response else ""
+        return response
 
     async def list_registered_tools(self, *, connect_mcp: bool = True) -> list[str]:
         """List current registered tool names, optionally connecting MCP first."""

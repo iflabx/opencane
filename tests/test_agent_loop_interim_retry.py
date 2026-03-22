@@ -117,7 +117,8 @@ async def test_agent_loop_retries_interim_text_then_executes_tool(tmp_path: Path
 
     outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
     assert outbound.content == "Tool progress update"
-    assert result == "Done after tool call."
+    assert result is not None
+    assert result.content == "Done after tool call."
     assert provider.calls == 3
 
 
@@ -134,7 +135,8 @@ async def test_agent_loop_retries_interim_text_only_once(tmp_path: Path) -> None
         chat_id="chat-2",
     )
 
-    assert result == "second final"
+    assert result is not None
+    assert result.content == "second final"
     assert provider.calls == 2
 
 
@@ -152,7 +154,8 @@ async def test_agent_loop_skips_interim_retry_without_available_tools(tmp_path: 
         allowed_tool_names=set(),
     )
 
-    assert result == "first response"
+    assert result is not None
+    assert result.content == "first response"
     assert provider.calls == 1
 
 
@@ -169,7 +172,8 @@ async def test_agent_loop_falls_back_to_interim_when_retry_returns_empty(tmp_pat
         chat_id="chat-4",
     )
 
-    assert result == "first interim answer"
+    assert result is not None
+    assert result.content == "first interim answer"
     assert provider.calls == 2
 
 
@@ -186,5 +190,5 @@ async def test_agent_loop_does_not_use_interim_fallback_after_tool_usage(tmp_pat
         chat_id="chat-5",
     )
 
-    assert result == ""
+    assert result is None
     assert provider.calls == 3

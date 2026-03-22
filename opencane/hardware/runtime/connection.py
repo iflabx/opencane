@@ -580,7 +580,7 @@ class DeviceRuntimeCore:
             policy_context=policy_context,
         )
         agent_started_ms = int(time.time() * 1000)
-        response = await self.agent_loop.process_direct(
+        response_raw = await self.agent_loop.process_direct(
             transcript,
             session_key=f"hardware:{session.device_id}:{session.session_id}",
             channel="hardware",
@@ -589,6 +589,7 @@ class DeviceRuntimeCore:
             blocked_tool_names=tool_denylist,
             message_metadata={"runtime_context": runtime_context},
         )
+        response = _direct_output_text(response_raw)
         agent_latency_ms = max(0, int(time.time() * 1000) - agent_started_ms)
         await self._send_tts_text(
             session,
@@ -1631,6 +1632,17 @@ def _to_float(value: Any, default: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return float(default)
+
+
+def _direct_output_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, str):
+        return value
+    content = getattr(value, "content", None)
+    if isinstance(content, str):
+        return content
+    return str(content or "")
 
 
 def _to_int(value: Any, default: int) -> int:
