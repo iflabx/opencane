@@ -139,3 +139,30 @@ def test_compute_next_run_uses_reference_now_ms_for_cron() -> None:
 
     assert next_run is not None
     assert next_run > now_ms
+
+
+@pytest.mark.asyncio
+async def test_running_service_honors_external_disable(tmp_path) -> None:
+    store_path = tmp_path / "cron" / "jobs.json"
+    called: list[str] = []
+
+    async def _on_job(job) -> None:  # type: ignore[no-untyped-def]
+        called.append(job.id)
+
+    service = CronService(store_path, on_job=_on_job)
+    job = service.add_job(
+        name="external-disable",
+        schedule=CronSchedule(kind="every", every_ms=200),
+        message="hello",
+    )
+    await service.start()
+    try:
+        external = CronService(store_path)
+        updated = external.enable_job(job.id, enabled=False)
+        assert updated is not None
+        assert updated.enabled is False
+
+        await asyncio.sleep(0.35)
+        assert called == []
+    finally:
+        service.stop()

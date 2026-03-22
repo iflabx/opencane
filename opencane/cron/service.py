@@ -78,13 +78,19 @@ class CronService:
         on_job: Callable[[CronJob], Coroutine[Any, Any, str | None]] | None = None,
     ):
         self.store_path = store_path
-        self.on_job = on_job  # Callback to execute job, returns response text
+        self.on_job = on_job
         self._store: CronStore | None = None
+        self._last_mtime: float = 0.0
         self._timer_task: asyncio.Task | None = None
         self._running = False
 
     def _load_store(self) -> CronStore:
-        """Load jobs from disk."""
+        """Load jobs from disk and auto-reload when file changes externally."""
+        if self._store and self.store_path.exists():
+            mtime = self.store_path.stat().st_mtime
+            if mtime != self._last_mtime:
+                logger.info("Cron: jobs store modified externally, reloading")
+                self._store = None
         if self._store:
             return self._store
 
@@ -191,6 +197,7 @@ class CronService:
         }
 
         self.store_path.write_text(json.dumps(data, indent=2))
+        self._last_mtime = self.store_path.stat().st_mtime
 
     async def start(self) -> None:
         """Start the cron service."""
@@ -246,6 +253,9 @@ class CronService:
 
     async def _on_timer(self) -> None:
         """Handle timer tick - run due jobs."""
+        # Reload on each tick so external edits (CLI/file) are honored promptly.
+        self._store = None
+        self._load_store()
         if not self._store:
             return
 
