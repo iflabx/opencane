@@ -157,6 +157,39 @@ def test_list_shows_next_run(tmp_path) -> None:
     assert "Next run:" in result
 
 
+def test_add_job_with_timezone_via_tool(tmp_path) -> None:
+    tool = _make_tool(tmp_path)
+    tool.set_context("cli", "chat-1")
+
+    result = tool._add_job(
+        message="Morning reminder",
+        every_seconds=None,
+        cron_expr="0 9 * * *",
+        tz="America/Vancouver",
+        at=None,
+    )
+
+    assert "Created job" in result
+    jobs = tool._cron.list_jobs(include_disabled=True)
+    assert jobs
+    assert jobs[0].schedule.tz == "America/Vancouver"
+
+
+def test_add_job_rejects_timezone_without_cron_expression(tmp_path) -> None:
+    tool = _make_tool(tmp_path)
+    tool.set_context("cli", "chat-2")
+
+    result = tool._add_job(
+        message="Bad tz usage",
+        every_seconds=60,
+        cron_expr=None,
+        tz="UTC",
+        at=None,
+    )
+
+    assert result == "Error: tz can only be used with cron_expr"
+
+
 def test_list_excludes_disabled_jobs(tmp_path) -> None:
     tool = _make_tool(tmp_path)
     job = tool._cron.add_job(

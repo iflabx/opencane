@@ -29,3 +29,26 @@ def test_cron_add_rejects_invalid_timezone(monkeypatch, tmp_path) -> None:
     assert result.exit_code == 1
     assert "Error: unknown timezone 'America/Vancovuer'" in result.stdout
     assert not (tmp_path / "cron" / "jobs.json").exists()
+
+
+def test_cron_add_rejects_tz_without_cron(monkeypatch, tmp_path) -> None:
+    monkeypatch.setattr("opencane.config.loader.get_data_dir", lambda: tmp_path)
+
+    result = runner.invoke(
+        app,
+        [
+            "cron",
+            "add",
+            "--name",
+            "demo",
+            "--message",
+            "hello",
+            "--every",
+            "60",
+            "--tz",
+            "UTC",
+        ],
+    )
+
+    assert result.exit_code == 1
+    assert "--tz can only be used with --cron" in result.stdout

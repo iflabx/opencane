@@ -1,9 +1,11 @@
 import asyncio
 import json
+from datetime import datetime, timezone
+from unittest.mock import patch
 
 import pytest
 
-from opencane.cron.service import CronService
+from opencane.cron.service import CronService, _compute_next_run
 from opencane.cron.types import CronSchedule
 
 
@@ -126,3 +128,14 @@ def test_add_job_accepts_valid_timezone(tmp_path) -> None:
 
     assert job.schedule.tz == "America/Vancouver"
     assert job.state.next_run_at_ms is not None
+
+
+def test_compute_next_run_uses_reference_now_ms_for_cron() -> None:
+    now_ms = int(datetime(2026, 3, 22, 10, 0, tzinfo=timezone.utc).timestamp() * 1000)
+    schedule = CronSchedule(kind="cron", expr="*/5 * * * *", tz="UTC")
+
+    with patch("opencane.cron.service.time.time", return_value=0.0):
+        next_run = _compute_next_run(schedule, now_ms)
+
+    assert next_run is not None
+    assert next_run > now_ms

@@ -507,6 +507,8 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
         tool_call_counts: dict[str, int] = {}
+        text_only_retried = False
+        interim_content: str | None = None
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -584,6 +586,25 @@ class AgentLoop:
                 messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
             else:
                 final_content = response.content
+                interim_text = str(final_content or "").strip()
+                # Some providers return an interim text-only answer before issuing tool calls.
+                # Give one extra iteration only when tool calling is available.
+                if interim_text and not tools_used and not text_only_retried and bool(tool_defs):
+                    text_only_retried = True
+                    interim_content = interim_text
+                    logger.debug(
+                        "Interim text response (no tools used yet), retrying once: {}",
+                        _shorten(interim_text, 120),
+                    )
+                    messages = self.context.add_assistant_message(
+                        messages,
+                        response.content,
+                        reasoning_content=response.reasoning_content,
+                    )
+                    final_content = None
+                    continue
+                if not interim_text and interim_content and not tools_used:
+                    final_content = interim_content
                 if require_tool_use and not tools_used:
                     final_content = "NO_TOOL_USED"
                 break
