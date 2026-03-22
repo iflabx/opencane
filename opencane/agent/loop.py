@@ -311,17 +311,18 @@ class AgentLoop:
         )
 
         # Shell tool
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-        ))
-        self.tool_domains.register_tool(
-            "exec",
-            domain="server_tools",
-            allowed_channels={"cli"},
-            allow_system=False,
-        )
+        if self.exec_config.enable:
+            self.tools.register(ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+            ))
+            self.tool_domains.register_tool(
+                "exec",
+                domain="server_tools",
+                allowed_channels={"cli"},
+                allow_system=False,
+            )
 
         # Web tools
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))

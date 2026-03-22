@@ -9,6 +9,7 @@ from opencane.agent.loop import AgentLoop
 from opencane.agent.tools.base import Tool
 from opencane.bus.events import InboundMessage
 from opencane.bus.queue import MessageBus
+from opencane.config.schema import ExecToolConfig
 from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
@@ -280,3 +281,15 @@ async def test_subagent_system_message_uses_assistant_role(tmp_path: Path) -> No
 
     assert outbound is not None
     assert provider.last_role == "assistant"
+
+
+def test_agent_loop_can_disable_exec_tool(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_SystemRoleProbeProvider(),
+        workspace=tmp_path,
+        exec_config=ExecToolConfig(enable=False),
+    )
+
+    assert loop.tools.get("exec") is None
