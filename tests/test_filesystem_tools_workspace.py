@@ -78,3 +78,23 @@ async def test_allowed_dir_check_rejects_startswith_path_bypass(tmp_path: Path) 
 
     assert result.startswith("Error: Path ")
     assert "outside allowed directory" in result
+
+
+@pytest.mark.asyncio
+async def test_edit_file_tool_not_found_reports_best_match(tmp_path: Path) -> None:
+    workspace = tmp_path / "workspace"
+    workspace.mkdir(parents=True)
+    target = workspace / "docs" / "plan.md"
+    target.parent.mkdir(parents=True)
+    target.write_text("alpha line\nbeta line\n", encoding="utf-8")
+
+    edit_tool = EditFileTool(workspace=workspace)
+    result = await edit_tool.execute(
+        path="docs/plan.md",
+        old_text="alpha lin\nbeta line\n",
+        new_text="patched",
+    )
+
+    assert "Best match" in result
+    assert "similar" in result
+    assert "old_text (provided)" in result
