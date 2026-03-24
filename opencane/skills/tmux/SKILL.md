@@ -11,7 +11,7 @@ Use tmux only when you need an interactive TTY. Prefer exec background mode for 
 ## Quickstart (isolated socket, exec tool)
 
 ```bash
-SOCKET_DIR="${OPENCANE_TMUX_SOCKET_DIR:-${NANOBOT_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/opencane-tmux-sockets}}"
+SOCKET_DIR="${OPENCANE_TMUX_SOCKET_DIR:-${TMPDIR:-/tmp}/opencane-tmux-sockets}"
 mkdir -p "$SOCKET_DIR"
 SOCKET="$SOCKET_DIR/opencane.sock"
 SESSION=opencane-python
@@ -32,8 +32,7 @@ To monitor:
 ## Socket convention
 
 - Prefer `OPENCANE_TMUX_SOCKET_DIR`.
-- `NANOBOT_TMUX_SOCKET_DIR` remains supported for compatibility.
-- Default socket path: `"$OPENCANE_TMUX_SOCKET_DIR/opencane.sock"` (or legacy nanobot path if only legacy env var is set).
+- Default socket path: `"$OPENCANE_TMUX_SOCKET_DIR/opencane.sock"`.
 
 ## Targeting panes and naming
 
