@@ -1,8 +1,10 @@
 """Utility functions for OpenCane runtime paths and helpers."""
 
+import base64
 import os
 from datetime import datetime
 from pathlib import Path
+from typing import Any
 
 PRIMARY_DATA_DIR_NAME = ".opencane"
 LEGACY_DATA_DIR_NAME = ".nanobot"
@@ -113,3 +115,29 @@ def parse_session_key(key: str) -> tuple[str, str]:
     if len(parts) != 2:
         raise ValueError(f"Invalid session key: {key}")
     return parts[0], parts[1]
+
+
+def detect_image_mime(data: bytes) -> str | None:
+    """Best-effort image MIME detection from file signatures."""
+    if len(data) >= 8 and data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if len(data) >= 3 and data[:3] == b"\xff\xd8\xff":
+        return "image/jpeg"
+    if len(data) >= 6 and (data.startswith(b"GIF87a") or data.startswith(b"GIF89a")):
+        return "image/gif"
+    if len(data) >= 12 and data[:4] == b"RIFF" and data[8:12] == b"WEBP":
+        return "image/webp"
+    return None
+
+
+def build_image_content_blocks(raw: bytes, mime: str, path: str, label: str) -> list[dict[str, Any]]:
+    """Build multimodal image blocks with an internal path tag and user-facing label."""
+    b64 = base64.b64encode(raw).decode()
+    return [
+        {
+            "type": "image_url",
+            "image_url": {"url": f"data:{mime};base64,{b64}"},
+            "_meta": {"path": path},
+        },
+        {"type": "text", "text": label},
+    ]

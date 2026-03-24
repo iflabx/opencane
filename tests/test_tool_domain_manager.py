@@ -7,8 +7,10 @@ import pytest
 
 from opencane.agent.loop import AgentLoop
 from opencane.agent.tools.base import Tool
+from opencane.agent.tools.shell import ExecTool
 from opencane.bus.events import InboundMessage
 from opencane.bus.queue import MessageBus
+from opencane.config.schema import ExecToolConfig
 from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
 
@@ -113,6 +115,27 @@ class _SingleExecProvider(LLMProvider):
         return "fake-model"
 
 
+class _SystemRoleProbeProvider(LLMProvider):
+    def __init__(self) -> None:
+        super().__init__(api_key=None, api_base=None)
+        self.last_role: str | None = None
+
+    async def chat(  # type: ignore[override]
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None = None,
+        model: str | None = None,
+        max_tokens: int = 4096,
+        temperature: float = 0.7,
+    ) -> LLMResponse:
+        del tools, model, max_tokens, temperature
+        self.last_role = str(messages[-1].get("role"))
+        return LLMResponse(content="done")
+
+    def get_default_model(self) -> str:
+        return "fake-model"
+
+
 class _FakeSpawnTool(Tool):
     def __init__(self) -> None:
         self.calls = 0
@@ -186,7 +209,8 @@ async def test_spawn_tool_is_guarded_by_max_calls_per_turn(tmp_path: Path) -> No
         channel="cli",
         chat_id="chat-guard",
     )
-    assert result == "done"
+    assert result is not None
+    assert result.content == "done"
     assert fake_spawn.calls == 1
 
 
@@ -232,5 +256,55 @@ async def test_explicit_allowlist_still_respects_channel_policy(tmp_path: Path) 
         chat_id="device-1",
         allowed_tool_names={"exec"},
     )
-    assert result == "done"
+    assert result is not None
+    assert result.content == "done"
     assert fake_exec.calls == 0
+
+
+@pytest.mark.asyncio
+async def test_subagent_system_message_uses_assistant_role(tmp_path: Path) -> None:
+    bus = MessageBus()
+    provider = _SystemRoleProbeProvider()
+    loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=tmp_path,
+    )
+
+    outbound = await loop._process_system_message(
+        InboundMessage(
+            channel="system",
+            sender_id="subagent",
+            chat_id="cli:chat-role",
+            content="system update",
+        )
+    )
+
+    assert outbound is not None
+    assert provider.last_role == "assistant"
+
+
+def test_agent_loop_can_disable_exec_tool(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_SystemRoleProbeProvider(),
+        workspace=tmp_path,
+        exec_config=ExecToolConfig(enable=False),
+    )
+
+    assert loop.tools.get("exec") is None
+
+
+def test_agent_loop_passes_exec_path_append_to_tool(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_SystemRoleProbeProvider(),
+        workspace=tmp_path,
+        exec_config=ExecToolConfig(enable=True, path_append="/usr/local/sbin"),
+    )
+
+    tool = loop.tools.get("exec")
+    assert isinstance(tool, ExecTool)
+    assert tool.path_append == "/usr/local/sbin"

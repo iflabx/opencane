@@ -21,6 +21,9 @@ class TelegramConfig(BaseModel):
     token: str = ""  # Bot token from @BotFather
     allow_from: list[str] = Field(default_factory=list)  # Allowed user IDs or usernames
     proxy: str | None = None  # HTTP/SOCKS5 proxy URL, e.g. "http://127.0.0.1:7890" or "socks5://127.0.0.1:1080"
+    reply_to_message: bool = False  # If true, bot replies quote the triggering message
+    connection_pool_size: int = 32
+    pool_timeout: float = 5.0
 
 
 class FeishuConfig(BaseModel):
@@ -131,6 +134,8 @@ class SlackConfig(BaseModel):
     bot_token: str = ""  # xoxb-...
     app_token: str = ""  # xapp-...
     user_token_read_only: bool = True
+    react_emoji: str = "eyes"
+    done_emoji: str = "white_check_mark"
     group_policy: str = "mention"  # "mention", "open", "allowlist"
     group_allow_from: list[str] = Field(default_factory=list)  # Allowed channel IDs if allowlist
     dm: SlackDMConfig = Field(default_factory=SlackDMConfig)
@@ -195,6 +200,7 @@ class ProvidersConfig(BaseModel):
     moonshot: ProviderConfig = Field(default_factory=ProviderConfig)
     minimax: ProviderConfig = Field(default_factory=ProviderConfig)
     aihubmix: ProviderConfig = Field(default_factory=ProviderConfig)  # AiHubMix API gateway
+    siliconflow: ProviderConfig = Field(default_factory=ProviderConfig)  # SiliconFlow API gateway
 
 
 class GatewayConfig(BaseModel):
@@ -216,7 +222,9 @@ class WebToolsConfig(BaseModel):
 
 class ExecToolConfig(BaseModel):
     """Shell exec tool configuration."""
+    enable: bool = True
     timeout: int = 60
+    path_append: str = ""
 
 
 class MCPServerConfig(BaseModel):
@@ -455,11 +463,24 @@ class Config(BaseSettings):
         """Match provider config and its registry name. Returns (config, spec_name)."""
         from opencane.providers.registry import PROVIDERS
         model_lower = (model or self.agents.defaults.model).lower()
+        model_normalized = model_lower.replace("-", "_")
+        model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
+        normalized_prefix = model_prefix.replace("-", "_")
+
+        def _kw_matches(kw: str) -> bool:
+            kw_lower = kw.lower()
+            return kw_lower in model_lower or kw_lower.replace("-", "_") in model_normalized
+
+        # Explicit provider prefix in model name has highest priority.
+        for spec in PROVIDERS:
+            p = getattr(self.providers, spec.name, None)
+            if p and model_prefix and normalized_prefix == spec.name and p.api_key:
+                return p, spec.name
 
         # Match by keyword (order follows PROVIDERS registry)
         for spec in PROVIDERS:
             p = getattr(self.providers, spec.name, None)
-            if p and any(kw in model_lower for kw in spec.keywords) and p.api_key:
+            if p and any(_kw_matches(kw) for kw in spec.keywords) and p.api_key:
                 return p, spec.name
 
         # Fallback: gateways first, then others (follows registry order)

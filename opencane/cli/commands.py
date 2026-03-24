@@ -28,6 +28,7 @@ from opencane.utils.helpers import get_data_path
 
 app = typer.Typer(
     name="opencane",
+    context_settings={"help_option_names": ["-h", "--help"]},
     help=f"{__logo__} opencane - Personal AI Assistant",
     no_args_is_help=True,
 )
@@ -102,10 +103,23 @@ def _init_prompt_session() -> None:
     )
 
 
-def _print_agent_response(response: str, render_markdown: bool) -> None:
+def _response_renderable(content: str, render_markdown: bool, metadata: dict | None = None):
+    """Render command-style output as plain text even when markdown is enabled."""
+    if not render_markdown:
+        return Text(content)
+    if (metadata or {}).get("render_as") == "text":
+        return Text(content)
+    return Markdown(content)
+
+
+def _print_agent_response(
+    response: str,
+    render_markdown: bool,
+    metadata: dict | None = None,
+) -> None:
     """Render assistant response with consistent terminal styling."""
     content = response or ""
-    body = Markdown(content) if render_markdown else Text(content)
+    body = _response_renderable(content, render_markdown, metadata)
     console.print()
     console.print(f"[cyan]{__logo__} opencane[/cyan]")
     console.print(body)
@@ -319,11 +333,12 @@ def onboard():
             save_config(config)
             console.print(f"[green]✓[/green] Config refreshed at {config_path} (existing values preserved)")
     else:
-        save_config(Config())
+        config = Config()
+        save_config(config)
         console.print(f"[green]✓[/green] Created config at {config_path}")
 
     # Create workspace
-    workspace = get_workspace_path()
+    workspace = get_workspace_path(config.workspace_path)
 
     if not workspace.exists():
         workspace.mkdir(parents=True, exist_ok=True)
@@ -713,7 +728,7 @@ def gateway(
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
-    console.print(f"{__logo__} Starting opencane gateway on port {port}...")
+    console.print(f"{__logo__} Starting opencane gateway version {__version__} on port {port}...")
 
     config = load_config()
     safety_policy = SafetyPolicy.from_config(config)
@@ -756,12 +771,13 @@ def gateway(
     # Set cron callback (needs agent)
     async def on_cron_job(job: CronJob) -> str | None:
         """Execute a cron job through the agent."""
-        response = await agent.process_direct(
+        resp = await agent.process_direct(
             job.payload.message,
             session_key=f"cron:{job.id}",
             channel=job.payload.channel or "cli",
             chat_id=job.payload.to or "direct",
         )
+        response = resp.content if resp else ""
         if job.payload.deliver and job.payload.to:
             from opencane.bus.events import OutboundMessage
             await bus.publish_outbound(OutboundMessage(
@@ -775,7 +791,8 @@ def gateway(
     # Create heartbeat service
     async def on_heartbeat(prompt: str) -> str:
         """Execute heartbeat through the agent."""
-        return await agent.process_direct(prompt, session_key="heartbeat")
+        resp = await agent.process_direct(prompt, session_key="heartbeat")
+        return resp.content if resp else ""
 
     heartbeat = HeartbeatService(
         workspace=config.workspace_path,
@@ -892,7 +909,11 @@ def agent(
             try:
                 with _thinking_ctx():
                     response = await agent_loop.process_direct(message, session_id)
-                _print_agent_response(response, render_markdown=markdown)
+                _print_agent_response(
+                    response.content if response else "",
+                    render_markdown=markdown,
+                    metadata=response.metadata if response else None,
+                )
             finally:
                 await agent_loop.close_mcp()
                 if lifelog_service:
@@ -928,7 +949,11 @@ def agent(
 
                         with _thinking_ctx():
                             response = await agent_loop.process_direct(user_input, session_id)
-                        _print_agent_response(response, render_markdown=markdown)
+                        _print_agent_response(
+                            response.content if response else "",
+                            render_markdown=markdown,
+                            metadata=response.metadata if response else None,
+                        )
                     except KeyboardInterrupt:
                         _restore_terminal()
                         console.print("\nGoodbye!")
@@ -1015,6 +1040,33 @@ def channels_status():
         "Slack",
         "✓" if slack.enabled else "✗",
         slack_config
+    )
+
+    # DingTalk
+    dt = config.channels.dingtalk
+    dt_config = f"client_id: {dt.client_id[:10]}..." if dt.client_id else "[dim]not configured[/dim]"
+    table.add_row(
+        "DingTalk",
+        "✓" if dt.enabled else "✗",
+        dt_config
+    )
+
+    # QQ
+    qq = config.channels.qq
+    qq_config = f"app_id: {qq.app_id[:10]}..." if qq.app_id else "[dim]not configured[/dim]"
+    table.add_row(
+        "QQ",
+        "✓" if qq.enabled else "✗",
+        qq_config
+    )
+
+    # Email
+    em = config.channels.email
+    em_config = em.imap_host if em.imap_host else "[dim]not configured[/dim]"
+    table.add_row(
+        "Email",
+        "✓" if em.enabled else "✗",
+        em_config
     )
 
     console.print(table)
@@ -1136,20 +1188,27 @@ def cron_list(
     table.add_column("Next Run")
 
     import time
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+
     for job in jobs:
         # Format schedule
         if job.schedule.kind == "every":
             sched = f"every {(job.schedule.every_ms or 0) // 1000}s"
         elif job.schedule.kind == "cron":
-            sched = job.schedule.expr or ""
+            sched = f"{job.schedule.expr or ''} ({job.schedule.tz})" if job.schedule.tz else (job.schedule.expr or "")
         else:
             sched = "one-time"
 
         # Format next run
         next_run = ""
         if job.state.next_run_at_ms:
-            next_time = time.strftime("%Y-%m-%d %H:%M", time.localtime(job.state.next_run_at_ms / 1000))
-            next_run = next_time
+            ts = job.state.next_run_at_ms / 1000
+            try:
+                tzinfo = ZoneInfo(job.schedule.tz) if job.schedule.tz else None
+                next_run = _dt.fromtimestamp(ts, tzinfo).strftime("%Y-%m-%d %H:%M")
+            except Exception:
+                next_run = time.strftime("%Y-%m-%d %H:%M", time.localtime(ts))
 
         status = "[green]enabled[/green]" if job.enabled else "[dim]disabled[/dim]"
 
@@ -1164,6 +1223,7 @@ def cron_add(
     message: str = typer.Option(..., "--message", "-m", help="Message for agent"),
     every: int = typer.Option(None, "--every", "-e", help="Run every N seconds"),
     cron_expr: str = typer.Option(None, "--cron", "-c", help="Cron expression (e.g. '0 9 * * *')"),
+    tz: str = typer.Option(None, "--tz", help="Timezone for cron expression (e.g. 'America/Vancouver')"),
     at: str = typer.Option(None, "--at", help="Run once at time (ISO format)"),
     deliver: bool = typer.Option(False, "--deliver", "-d", help="Deliver response to channel"),
     to: str = typer.Option(None, "--to", help="Recipient for delivery"),
@@ -1174,11 +1234,15 @@ def cron_add(
     from opencane.cron.service import CronService
     from opencane.cron.types import CronSchedule
 
+    if tz and not cron_expr:
+        console.print("[red]Error: --tz can only be used with --cron[/red]")
+        raise typer.Exit(1)
+
     # Determine schedule type
     if every:
         schedule = CronSchedule(kind="every", every_ms=every * 1000)
     elif cron_expr:
-        schedule = CronSchedule(kind="cron", expr=cron_expr)
+        schedule = CronSchedule(kind="cron", expr=cron_expr, tz=tz)
     elif at:
         import datetime
         dt = datetime.datetime.fromisoformat(at)
@@ -1190,14 +1254,18 @@ def cron_add(
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
 
-    job = service.add_job(
-        name=name,
-        schedule=schedule,
-        message=message,
-        deliver=deliver,
-        to=to,
-        channel=channel,
-    )
+    try:
+        job = service.add_job(
+            name=name,
+            schedule=schedule,
+            message=message,
+            deliver=deliver,
+            to=to,
+            channel=channel,
+        )
+    except ValueError as e:
+        console.print(f"[red]Error: {e}[/red]")
+        raise typer.Exit(1) from e
 
     console.print(f"[green]✓[/green] Added job '{job.name}' ({job.id})")
 
@@ -1245,17 +1313,63 @@ def cron_run(
     force: bool = typer.Option(False, "--force", "-f", help="Run even if disabled"),
 ):
     """Manually run a job."""
-    from opencane.config.loader import get_data_dir
+    from loguru import logger
+
+    from opencane.agent.loop import AgentLoop
+    from opencane.bus.queue import MessageBus
+    from opencane.config.loader import get_data_dir, load_config
     from opencane.cron.service import CronService
+    from opencane.safety.policy import SafetyPolicy
+
+    logger.disable("opencane")
+    config = load_config()
+    provider = _make_provider(config)
+    safety_policy = SafetyPolicy.from_config(config)
+    bus = MessageBus()
+    agent_loop = AgentLoop(
+        bus=bus,
+        provider=provider,
+        workspace=config.workspace_path,
+        model=config.agents.defaults.model,
+        temperature=config.agents.defaults.temperature,
+        max_tokens=config.agents.defaults.max_tokens,
+        max_iterations=config.agents.defaults.max_tool_iterations,
+        memory_window=config.agents.defaults.memory_window,
+        brave_api_key=config.tools.web.search.api_key or None,
+        exec_config=config.tools.exec,
+        restrict_to_workspace=config.tools.restrict_to_workspace,
+        mcp_servers=config.tools.mcp_servers,
+        safety_policy=safety_policy,
+        max_subagents=config.agents.defaults.max_subagents,
+    )
 
     store_path = get_data_dir() / "cron" / "jobs.json"
     service = CronService(store_path)
+    result_holder: list[str] = []
+
+    async def on_job(job) -> str | None:  # type: ignore[no-untyped-def]
+        resp = await agent_loop.process_direct(
+            job.payload.message,
+            session_key=f"cron:{job.id}",
+            channel=job.payload.channel or "cli",
+            chat_id=job.payload.to or "direct",
+        )
+        response = resp.content if resp else ""
+        result_holder.append(response)
+        return response
+
+    service.on_job = on_job
 
     async def run():
-        return await service.run_job(job_id, force=force)
+        try:
+            return await service.run_job(job_id, force=force)
+        finally:
+            await agent_loop.close_mcp()
 
     if asyncio.run(run()):
         console.print("[green]✓[/green] Job executed")
+        if result_holder:
+            _print_agent_response(result_holder[0], render_markdown=True)
     else:
         console.print(f"[red]Failed to run job {job_id}[/red]")
 

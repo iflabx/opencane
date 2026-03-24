@@ -7,6 +7,7 @@ from typing import Any
 import pytest
 
 from opencane.agent.loop import AgentLoop
+from opencane.bus.events import InboundMessage
 from opencane.bus.queue import MessageBus
 from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 
@@ -111,6 +112,20 @@ class _FakeLifelogService:
         return len(self.runtime_events)
 
 
+class _SpuriousCancelledBus(MessageBus):
+    """Message bus that raises a one-off spurious CancelledError on inbound consume."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._raised = False
+
+    async def consume_inbound(self) -> InboundMessage:
+        if not self._raised:
+            self._raised = True
+            raise asyncio.CancelledError()
+        return await super().consume_inbound()
+
+
 @pytest.mark.asyncio
 async def test_agent_loop_applies_safety_for_non_hardware_channel(tmp_path: Path) -> None:
     bus = MessageBus()
@@ -128,7 +143,8 @@ async def test_agent_loop_applies_safety_for_non_hardware_channel(tmp_path: Path
         channel="cli",
         chat_id="chat-1",
     )
-    assert result.startswith("safe:")
+    assert result is not None
+    assert result.content.startswith("safe:")
     assert any(
         str(event.get("event_type")) == "safety_policy"
         and str((event.get("payload") or {}).get("source")) == "agent_reply"
@@ -151,7 +167,8 @@ async def test_agent_loop_skips_safety_for_hardware_channel(tmp_path: Path) -> N
         channel="hardware",
         chat_id="device-1",
     )
-    assert result == "请继续直行"
+    assert result is not None
+    assert result.content == "请继续直行"
 
 
 @pytest.mark.asyncio
@@ -171,7 +188,8 @@ async def test_agent_loop_no_tool_used_token_not_modified(tmp_path: Path) -> Non
         allowed_tool_names={"web_search"},
         require_tool_use=True,
     )
-    assert result == "NO_TOOL_USED"
+    assert result is not None
+    assert result.content == "NO_TOOL_USED"
 
 
 @pytest.mark.asyncio
@@ -191,7 +209,7 @@ async def test_agent_loop_message_tool_outbound_is_safety_filtered(tmp_path: Pat
         channel="cli",
         chat_id="chat-99",
     )
-    assert result.startswith("safe:")
+    assert result is None
     outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=1.0)
     assert outbound.channel == "cli"
     assert outbound.chat_id == "chat-99"
@@ -227,10 +245,53 @@ async def test_agent_loop_process_direct_injects_runtime_context_block(tmp_path:
             }
         },
     )
-    assert result == "ok"
+    assert result is not None
+    assert result.content == "ok"
     assert provider.last_messages
     system_prompt = str(provider.last_messages[0].get("content") or "")
     assert "Device Runtime Context" in system_prompt
     assert "device_id: dev-1" in system_prompt
     assert "trace_id: trace-ctx-1" in system_prompt
     assert "battery" in system_prompt
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_run_ignores_spurious_cancelled_error(tmp_path: Path) -> None:
+    bus = _SpuriousCancelledBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_FakeProvider("ok"),
+        workspace=tmp_path,
+    )
+    task = asyncio.create_task(loop.run())
+    try:
+        await bus.publish_inbound(
+            InboundMessage(
+                channel="cli",
+                sender_id="user-1",
+                chat_id="chat-1",
+                content="hello",
+            )
+        )
+        outbound = await asyncio.wait_for(bus.consume_outbound(), timeout=2.0)
+        assert outbound.content == "ok"
+    finally:
+        loop.stop()
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+
+@pytest.mark.asyncio
+async def test_agent_loop_run_respects_task_cancellation(tmp_path: Path) -> None:
+    bus = MessageBus()
+    loop = AgentLoop(
+        bus=bus,
+        provider=_FakeProvider("ok"),
+        workspace=tmp_path,
+    )
+    task = asyncio.create_task(loop.run())
+    await asyncio.sleep(0)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task

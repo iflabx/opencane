@@ -10,6 +10,9 @@ from litellm import acompletion
 from opencane.providers.base import LLMProvider, LLMResponse, ToolCallRequest
 from opencane.providers.registry import find_by_model, find_gateway
 
+# Standard OpenAI chat-completion message keys; strict providers reject extras.
+_ALLOWED_MSG_KEYS = frozenset({"role", "content", "tool_calls", "tool_call_id", "name"})
+
 
 class LiteLLMProvider(LLMProvider):
     """
@@ -84,10 +87,72 @@ class LiteLLMProvider(LLMProvider):
         # Standard mode: auto-prefix for known providers
         spec = find_by_model(model)
         if spec and spec.litellm_prefix:
+            model = self._canonicalize_explicit_prefix(model, spec.name, spec.litellm_prefix)
             if not any(model.startswith(s) for s in spec.skip_prefixes):
                 model = f"{spec.litellm_prefix}/{model}"
 
         return model
+
+    @staticmethod
+    def _canonicalize_explicit_prefix(model: str, spec_name: str, canonical_prefix: str) -> str:
+        """Normalize explicit provider prefixes before auto-prefix checks."""
+        if "/" not in model:
+            return model
+        prefix, remainder = model.split("/", 1)
+        if prefix.lower().replace("-", "_") != spec_name:
+            return model
+        return f"{canonical_prefix}/{remainder}"
+
+    def _supports_cache_control(self, model: str) -> bool:
+        """Return True when the routed provider supports prompt cache_control."""
+        if self._gateway is not None:
+            return bool(self._gateway.supports_prompt_caching)
+        spec = find_by_model(model)
+        return spec is not None and bool(spec.supports_prompt_caching)
+
+    def _apply_cache_control(
+        self,
+        messages: list[dict[str, Any]],
+        tools: list[dict[str, Any]] | None,
+    ) -> tuple[list[dict[str, Any]], list[dict[str, Any]] | None]:
+        """Return copies of messages and tools with cache_control injected.
+
+        Two breakpoints are placed:
+        1. System message — caches the static system prompt.
+        2. Second-to-last message — caches conversation history prefix.
+        """
+        cache_marker = {"type": "ephemeral"}
+        new_messages = list(messages)
+
+        def _mark(msg: dict[str, Any]) -> dict[str, Any]:
+            content = msg.get("content")
+            if isinstance(content, str):
+                return {
+                    **msg,
+                    "content": [{"type": "text", "text": content, "cache_control": cache_marker}],
+                }
+            if isinstance(content, list) and content:
+                new_content = list(content)
+                last = new_content[-1]
+                if isinstance(last, dict):
+                    new_content[-1] = {**last, "cache_control": cache_marker}
+                return {**msg, "content": new_content}
+            return msg
+
+        # Breakpoint 1: system message.
+        if new_messages and new_messages[0].get("role") == "system":
+            new_messages[0] = _mark(new_messages[0])
+
+        # Breakpoint 2: second-to-last message (conversation history prefix).
+        if len(new_messages) >= 3:
+            new_messages[-2] = _mark(new_messages[-2])
+
+        new_tools = tools
+        if tools:
+            new_tools = list(tools)
+            new_tools[-1] = {**new_tools[-1], "cache_control": cache_marker}
+
+        return new_messages, new_tools
 
     def _apply_model_overrides(self, model: str, kwargs: dict[str, Any]) -> None:
         """Apply model-specific parameter overrides from the registry."""
@@ -98,6 +163,30 @@ class LiteLLMProvider(LLMProvider):
                 if pattern in model_lower:
                     kwargs.update(overrides)
                     return
+
+    @staticmethod
+    def _sanitize_messages(messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        """Strip non-standard message keys and keep strict provider compatibility."""
+        sanitized: list[dict[str, Any]] = []
+        for msg in messages:
+            clean = {k: v for k, v in msg.items() if k in _ALLOWED_MSG_KEYS}
+            content = clean.get("content")
+            if isinstance(content, list):
+                new_blocks: list[Any] = []
+                changed = False
+                for block in content:
+                    if isinstance(block, dict) and "_meta" in block:
+                        new_blocks.append({k: v for k, v in block.items() if k != "_meta"})
+                        changed = True
+                    else:
+                        new_blocks.append(block)
+                if changed:
+                    clean["content"] = new_blocks
+            # Some providers require assistant messages to always carry "content".
+            if clean.get("role") == "assistant" and "content" not in clean:
+                clean["content"] = None
+            sanitized.append(clean)
+        return sanitized
 
     async def chat(
         self,
@@ -120,7 +209,11 @@ class LiteLLMProvider(LLMProvider):
         Returns:
             LLMResponse with content and/or tool calls.
         """
-        model = self._resolve_model(model or self.default_model)
+        original_model = model or self.default_model
+        model = self._resolve_model(original_model)
+
+        if self._supports_cache_control(original_model):
+            messages, tools = self._apply_cache_control(messages, tools)
 
         # Clamp max_tokens to at least 1 — negative or zero values cause
         # LiteLLM to reject the request with "max_tokens must be at least 1".
@@ -128,7 +221,7 @@ class LiteLLMProvider(LLMProvider):
 
         kwargs: dict[str, Any] = {
             "model": model,
-            "messages": messages,
+            "messages": self._sanitize_messages(messages),
             "max_tokens": max_tokens,
             "temperature": temperature,
         }

@@ -21,6 +21,16 @@ class Tool(ABC):
         "object": dict,
     }
 
+    @staticmethod
+    def _resolve_type(t: Any) -> str | None:
+        """Resolve JSON Schema union type to a simple non-null type."""
+        if isinstance(t, list):
+            for item in t:
+                if item != "null":
+                    return item
+            return None
+        return t
+
     @property
     @abstractmethod
     def name(self) -> str:
@@ -40,7 +50,7 @@ class Tool(ABC):
         pass
 
     @abstractmethod
-    async def execute(self, **kwargs: Any) -> str:
+    async def execute(self, **kwargs: Any) -> Any:
         """
         Execute the tool with given parameters.
 
@@ -48,20 +58,37 @@ class Tool(ABC):
             **kwargs: Tool-specific parameters.
 
         Returns:
-            String result of the tool execution.
+            Tool result (string or structured content blocks).
         """
         pass
 
     def validate_params(self, params: dict[str, Any]) -> list[str]:
         """Validate tool parameters against JSON schema. Returns error list (empty if valid)."""
+        if not isinstance(params, dict):
+            return [f"parameters must be an object, got {type(params).__name__}"]
         schema = self.parameters or {}
         if schema.get("type", "object") != "object":
             raise ValueError(f"Schema must be object type, got {schema.get('type')!r}")
         return self._validate(params, {**schema, "type": "object"}, "")
 
     def _validate(self, val: Any, schema: dict[str, Any], path: str) -> list[str]:
-        t, label = schema.get("type"), path or "parameter"
-        if t in self._TYPE_MAP and not isinstance(val, self._TYPE_MAP[t]):
+        raw_type = schema.get("type")
+        nullable = (isinstance(raw_type, list) and "null" in raw_type) or bool(
+            schema.get("nullable", False)
+        )
+        t, label = self._resolve_type(raw_type), path or "parameter"
+        if nullable and val is None:
+            return []
+
+        if t == "integer" and (not isinstance(val, int) or isinstance(val, bool)):
+            return [f"{label} should be {t}"]
+        if t == "number" and (
+            not isinstance(val, self._TYPE_MAP[t]) or isinstance(val, bool)
+        ):
+            return [f"{label} should be {t}"]
+        if t in self._TYPE_MAP and t not in ("integer", "number") and not isinstance(
+            val, self._TYPE_MAP[t]
+        ):
             return [f"{label} should be {t}"]
 
         errors = []

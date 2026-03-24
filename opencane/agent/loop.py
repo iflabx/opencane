@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import time
 import uuid
 from contextlib import AsyncExitStack
 from pathlib import Path
@@ -12,6 +13,7 @@ from typing import TYPE_CHECKING, Any
 import json_repair
 from loguru import logger
 
+from opencane import __version__
 from opencane.agent.context import ContextBuilder
 from opencane.agent.memory import UnifiedMemoryProvider
 from opencane.agent.subagent import SubagentManager
@@ -122,6 +124,15 @@ class AgentLoop:
         self._mcp_servers = mcp_servers or {}
         self._mcp_stack: AsyncExitStack | None = None
         self._mcp_connected = False
+        self._mcp_connecting = False
+        self._consolidating: set[str] = set()  # Session keys with consolidation in progress
+        self._consolidation_locks: dict[str, asyncio.Lock] = {}
+        self._background_tasks: list[asyncio.Task[Any]] = []
+        self._start_time = time.time()
+        self._last_usage: dict[str, int] = {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+        }
         self._register_default_tools()
 
     def _should_apply_safety(
@@ -268,30 +279,30 @@ class AgentLoop:
 
     def _register_default_tools(self) -> None:
         """Register the default set of tools."""
-        # File tools (restrict to workspace if configured)
+        # File tools (workspace for relative paths, restrict if configured)
         allowed_dir = self.workspace if self.restrict_to_workspace else None
-        self.tools.register(ReadFileTool(allowed_dir=allowed_dir))
+        self.tools.register(ReadFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "read_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(WriteFileTool(allowed_dir=allowed_dir))
+        self.tools.register(WriteFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "write_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(EditFileTool(allowed_dir=allowed_dir))
+        self.tools.register(EditFileTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "edit_file",
             domain="server_tools",
             allowed_channels={"cli"},
             allow_system=False,
         )
-        self.tools.register(ListDirTool(allowed_dir=allowed_dir))
+        self.tools.register(ListDirTool(workspace=self.workspace, allowed_dir=allowed_dir))
         self.tool_domains.register_tool(
             "list_dir",
             domain="server_tools",
@@ -300,17 +311,19 @@ class AgentLoop:
         )
 
         # Shell tool
-        self.tools.register(ExecTool(
-            working_dir=str(self.workspace),
-            timeout=self.exec_config.timeout,
-            restrict_to_workspace=self.restrict_to_workspace,
-        ))
-        self.tool_domains.register_tool(
-            "exec",
-            domain="server_tools",
-            allowed_channels={"cli"},
-            allow_system=False,
-        )
+        if self.exec_config.enable:
+            self.tools.register(ExecTool(
+                working_dir=str(self.workspace),
+                timeout=self.exec_config.timeout,
+                restrict_to_workspace=self.restrict_to_workspace,
+                path_append=self.exec_config.path_append,
+            ))
+            self.tool_domains.register_tool(
+                "exec",
+                domain="server_tools",
+                allowed_channels={"cli"},
+                allow_system=False,
+            )
 
         # Web tools
         self.tools.register(WebSearchTool(api_key=self.brave_api_key))
@@ -364,14 +377,26 @@ class AgentLoop:
 
     async def _connect_mcp(self) -> None:
         """Connect to configured MCP servers (one-time, lazy)."""
-        if self._mcp_connected or not self._mcp_servers:
+        if self._mcp_connected or self._mcp_connecting or not self._mcp_servers:
             return
-        self._mcp_connected = True
+        self._mcp_connecting = True
         from opencane.agent.tools.mcp import connect_mcp_servers
-        self._mcp_stack = AsyncExitStack()
-        await self._mcp_stack.__aenter__()
-        await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
-        self.tool_domains.register_mcp_tools(self.tools.tool_names)
+        try:
+            self._mcp_stack = AsyncExitStack()
+            await self._mcp_stack.__aenter__()
+            await connect_mcp_servers(self._mcp_servers, self.tools, self._mcp_stack)
+            self._mcp_connected = True
+            self.tool_domains.register_mcp_tools(self.tools.tool_names)
+        except Exception as e:
+            logger.error(f"Failed to connect MCP servers (will retry next message): {e}")
+            if self._mcp_stack:
+                try:
+                    await self._mcp_stack.aclose()
+                except Exception:
+                    pass
+                self._mcp_stack = None
+        finally:
+            self._mcp_connecting = False
 
     def _set_tool_context(self, channel: str, chat_id: str) -> None:
         """Update context for all tools that need routing info."""
@@ -386,6 +411,52 @@ class AgentLoop:
         if cron_tool := self.tools.get("cron"):
             if isinstance(cron_tool, CronTool):
                 cron_tool.set_context(channel, chat_id)
+
+    def _schedule_consolidation(self, session: Session, *, archive_all: bool = False) -> None:
+        """Start memory consolidation for a session, deduplicated by session key."""
+        if session.key in self._consolidating:
+            return
+        self._consolidating.add(session.key)
+        lock = self._get_consolidation_lock(session.key)
+
+        async def _run() -> None:
+            try:
+                async with lock:
+                    await self._consolidate_memory(session, archive_all=archive_all)
+            finally:
+                self._consolidating.discard(session.key)
+                self._prune_consolidation_lock(session.key)
+
+        self._track_background_task(asyncio.create_task(_run()))
+
+    def _get_consolidation_lock(self, session_key: str) -> asyncio.Lock:
+        lock = self._consolidation_locks.get(session_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._consolidation_locks[session_key] = lock
+        return lock
+
+    def _prune_consolidation_lock(self, session_key: str) -> None:
+        """Drop unused per-session lock entries to avoid unbounded growth."""
+        lock = self._consolidation_locks.get(session_key)
+        if lock is None:
+            return
+        waiters = getattr(lock, "_waiters", None)
+        if lock.locked() or bool(waiters):
+            return
+        self._consolidation_locks.pop(session_key, None)
+
+    def _track_background_task(self, task: asyncio.Task[Any]) -> None:
+        """Track a background task so shutdown can drain in-flight work."""
+        self._background_tasks.append(task)
+
+        def _remove(done: asyncio.Task[Any]) -> None:
+            try:
+                self._background_tasks.remove(done)
+            except ValueError:
+                pass
+
+        task.add_done_callback(_remove)
 
     async def _build_prompt_memory_context(
         self,
@@ -442,6 +513,40 @@ class AgentLoop:
             lines.append(f"- {key}: {_shorten(text, 320)}")
         return "\n".join(lines)
 
+    @staticmethod
+    def _format_uptime(seconds: int) -> str:
+        if seconds >= 3600:
+            return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+        return f"{seconds // 60}m {seconds % 60}s"
+
+    def _build_status_content(self, session: Session) -> str:
+        history = session.get_history(max_messages=0)
+        msg_count = len(history)
+        active_subagents = self.subagents.get_running_count()
+        uptime_s = int(max(0, time.time() - self._start_time))
+        last_in = int(self._last_usage.get("prompt_tokens", 0))
+        last_out = int(self._last_usage.get("completion_tokens", 0))
+
+        return "\n".join(
+            [
+                f"🦯 OpenCane v{__version__}",
+                f"🧠 Model: {self.model}",
+                f"📊 Last tokens: {last_in} in / {last_out} out",
+                f"💬 Session: {msg_count} messages",
+                f"👾 Subagents: {active_subagents} active",
+                f"🪢 Queue: {self.bus.inbound.qsize()} pending",
+                f"⏱ Uptime: {self._format_uptime(uptime_s)}",
+            ]
+        )
+
+    def _status_response(self, msg: InboundMessage, session: Session) -> OutboundMessage:
+        return OutboundMessage(
+            channel=msg.channel,
+            chat_id=msg.chat_id,
+            content=self._build_status_content(session),
+            metadata={"render_as": "text"},
+        )
+
     async def _run_agent_loop(
         self,
         initial_messages: list[dict],
@@ -466,6 +571,8 @@ class AgentLoop:
         final_content = None
         tools_used: list[str] = []
         tool_call_counts: dict[str, int] = {}
+        text_only_retried = False
+        interim_content: str | None = None
 
         while iteration < self.max_iterations:
             iteration += 1
@@ -496,6 +603,11 @@ class AgentLoop:
                 temperature=self.temperature,
                 max_tokens=self.max_tokens,
             )
+            usage = response.usage or {}
+            self._last_usage = {
+                "prompt_tokens": int(usage.get("prompt_tokens", 0) or 0),
+                "completion_tokens": int(usage.get("completion_tokens", 0) or 0),
+            }
 
             if response.has_tool_calls:
                 tool_call_dicts = [
@@ -543,6 +655,25 @@ class AgentLoop:
                 messages.append({"role": "user", "content": "Reflect on the results and decide next steps."})
             else:
                 final_content = response.content
+                interim_text = str(final_content or "").strip()
+                # Some providers return an interim text-only answer before issuing tool calls.
+                # Give one extra iteration only when tool calling is available.
+                if interim_text and not tools_used and not text_only_retried and bool(tool_defs):
+                    text_only_retried = True
+                    interim_content = interim_text
+                    logger.debug(
+                        "Interim text response (no tools used yet), retrying once: {}",
+                        _shorten(interim_text, 120),
+                    )
+                    messages = self.context.add_assistant_message(
+                        messages,
+                        response.content,
+                        reasoning_content=response.reasoning_content,
+                    )
+                    final_content = None
+                    continue
+                if not interim_text and interim_content and not tools_used:
+                    final_content = interim_content
                 if require_tool_use and not tools_used:
                     final_content = "NO_TOOL_USED"
                 break
@@ -561,6 +692,10 @@ class AgentLoop:
                     self.bus.consume_inbound(),
                     timeout=1.0
                 )
+                if msg.content.strip().lower() == "/status":
+                    session = self.sessions.get_or_create(msg.session_key)
+                    await self.bus.publish_outbound(self._status_response(msg, session))
+                    continue
                 try:
                     response = await self._process_message(msg)
                     if response:
@@ -574,9 +709,19 @@ class AgentLoop:
                     ))
             except asyncio.TimeoutError:
                 continue
+            except asyncio.CancelledError:
+                # Preserve real task cancellation so shutdown can complete cleanly.
+                # Ignore non-task CancelledError signals that may leak from integrations.
+                if not self._running or asyncio.current_task().cancelling():
+                    raise
+                continue
 
     async def close_mcp(self) -> None:
-        """Close MCP connections."""
+        """Drain background tasks, then close MCP connections."""
+        if self._background_tasks:
+            pending = list(self._background_tasks)
+            await asyncio.gather(*pending, return_exceptions=True)
+            self._background_tasks.clear()
         if self._mcp_stack:
             try:
                 await self._mcp_stack.aclose()
@@ -621,28 +766,61 @@ class AgentLoop:
         # Handle slash commands
         cmd = msg.content.strip().lower()
         if cmd == "/new":
-            # Capture messages before clearing (avoid race condition with background task)
-            messages_to_archive = session.messages.copy()
-            session.clear()
-            self.sessions.save(session)
-            self.sessions.invalidate(session.key)
+            lock = self._get_consolidation_lock(session.key)
+            messages_to_archive: list[dict[str, Any]] = []
+            archive_succeeded = True
+            try:
+                async with lock:
+                    messages_to_archive = session.messages[session.last_consolidated:].copy()
+                    if messages_to_archive:
+                        temp_session = Session(key=session.key)
+                        temp_session.messages = messages_to_archive
+                        archive_succeeded = await self._consolidate_memory(
+                            temp_session,
+                            archive_all=True,
+                        )
+                    if not archive_succeeded:
+                        return OutboundMessage(
+                            channel=msg.channel,
+                            chat_id=msg.chat_id,
+                            content=(
+                                "Could not start a new session because memory archival failed. "
+                                "Please try again."
+                            ),
+                        )
+                    session.clear()
+                    self.sessions.save(session)
+                    self.sessions.invalidate(session.key)
+            finally:
+                self._prune_consolidation_lock(session.key)
 
-            async def _consolidate_and_cleanup():
-                temp_session = Session(key=session.key)
-                temp_session.messages = messages_to_archive
-                await self._consolidate_memory(temp_session, archive_all=True)
-
-            asyncio.create_task(_consolidate_and_cleanup())
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="New session started. Memory consolidation in progress.")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content="New session started. Memory archived.",
+            )
         if cmd == "/help":
-            return OutboundMessage(channel=msg.channel, chat_id=msg.chat_id,
-                                  content="🦯 OpenCane commands:\n/new — Start a new conversation\n/help — Show available commands")
+            return OutboundMessage(
+                channel=msg.channel,
+                chat_id=msg.chat_id,
+                content=(
+                    "🦯 OpenCane commands:\n"
+                    "/new — Start a new conversation\n"
+                    "/status — Show runtime status\n"
+                    "/help — Show available commands"
+                ),
+                metadata={"render_as": "text"},
+            )
+        if cmd == "/status":
+            return self._status_response(msg, session)
 
         if len(session.messages) > self.memory_window:
-            asyncio.create_task(self._consolidate_memory(session))
+            self._schedule_consolidation(session)
 
         self._set_tool_context(msg.channel, msg.chat_id)
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                message_tool.start_turn()
         memory_context = await self._build_prompt_memory_context(
             query=msg.content,
             session_key=key,
@@ -700,6 +878,19 @@ class AgentLoop:
             logger.debug(f"layered memory record_turn failed: {e}")
         self.sessions.save(session)
 
+        suppress_final_reply = False
+        if message_tool := self.tools.get("message"):
+            if isinstance(message_tool, MessageTool):
+                sent_targets = set(message_tool.get_turn_sends())
+                suppress_final_reply = (msg.channel, msg.chat_id) in sent_targets
+
+        if suppress_final_reply:
+            logger.info(
+                "Skipping final auto-reply because message tool already sent to "
+                f"{msg.channel}:{msg.chat_id} in this turn"
+            )
+            return None
+
         return OutboundMessage(
             channel=msg.channel,
             chat_id=msg.chat_id,
@@ -741,6 +932,7 @@ class AgentLoop:
             channel=origin_channel,
             chat_id=origin_chat_id,
             memory_context_override=memory_context,
+            current_role="assistant" if msg.sender_id == "subagent" else "user",
         )
         final_content, _ = await self._run_agent_loop(
             initial_messages,
@@ -780,7 +972,7 @@ class AgentLoop:
             content=final_content
         )
 
-    async def _consolidate_memory(self, session, archive_all: bool = False) -> None:
+    async def _consolidate_memory(self, session, archive_all: bool = False) -> bool:
         """Consolidate old messages into MEMORY.md + HISTORY.md.
 
         Args:
@@ -797,16 +989,16 @@ class AgentLoop:
             keep_count = self.memory_window // 2
             if len(session.messages) <= keep_count:
                 logger.debug(f"Session {session.key}: No consolidation needed (messages={len(session.messages)}, keep={keep_count})")
-                return
+                return True
 
             messages_to_process = len(session.messages) - session.last_consolidated
             if messages_to_process <= 0:
                 logger.debug(f"Session {session.key}: No new messages to consolidate (last_consolidated={session.last_consolidated}, total={len(session.messages)})")
-                return
+                return True
 
             old_messages = session.messages[session.last_consolidated:-keep_count]
             if not old_messages:
-                return
+                return True
             logger.info(f"Memory consolidation started: {len(session.messages)} total, {len(old_messages)} new to consolidate, {keep_count} keep")
 
         lines = []
@@ -823,6 +1015,14 @@ class AgentLoop:
 1. "history_entry": A paragraph (2-5 sentences) summarizing the key events/decisions/topics. Start with a timestamp like [YYYY-MM-DD HH:MM]. Include enough detail to be useful when found by grep search later.
 
 2. "memory_update": The updated long-term memory content. Add any new facts: user location, preferences, personal info, habits, project context, technical decisions, tools/services used. If nothing new, return the existing content unchanged.
+
+Both values MUST be strings, not objects or arrays.
+
+Example:
+{{
+  "history_entry": "[2026-03-21 12:10] User asked about ...",
+  "memory_update": "- Device: EC600MCNLE\\n- Prefers concise answers"
+}}
 
 ## Current Long-term Memory
 {current_memory or "(empty)"}
@@ -843,17 +1043,21 @@ Respond with ONLY valid JSON, no markdown fences."""
             text = (response.content or "").strip()
             if not text:
                 logger.warning("Memory consolidation: LLM returned empty response, skipping")
-                return
+                return False
             if text.startswith("```"):
                 text = text.split("\n", 1)[-1].rsplit("```", 1)[0].strip()
             result = json_repair.loads(text)
             if not isinstance(result, dict):
                 logger.warning(f"Memory consolidation: unexpected response type, skipping. Response: {text[:200]}")
-                return
+                return False
 
             if entry := result.get("history_entry"):
+                if not isinstance(entry, str):
+                    entry = json.dumps(entry, ensure_ascii=False)
                 memory.append_history(entry)
             if update := result.get("memory_update"):
+                if not isinstance(update, str):
+                    update = json.dumps(update, ensure_ascii=False)
                 if update != current_memory:
                     memory.write_long_term(update)
 
@@ -862,8 +1066,10 @@ Respond with ONLY valid JSON, no markdown fences."""
             else:
                 session.last_consolidated = len(session.messages) - keep_count
             logger.info(f"Memory consolidation done: {len(session.messages)} messages, last_consolidated={session.last_consolidated}")
+            return True
         except Exception as e:
             logger.error(f"Memory consolidation failed: {e}")
+            return False
 
     async def process_direct(
         self,
@@ -875,7 +1081,7 @@ Respond with ONLY valid JSON, no markdown fences."""
         blocked_tool_names: set[str] | None = None,
         require_tool_use: bool = False,
         message_metadata: dict[str, Any] | None = None,
-    ) -> str:
+    ) -> OutboundMessage | None:
         """
         Process a message directly (for CLI or cron usage).
 
@@ -888,7 +1094,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             message_metadata: Optional per-message metadata for context injection.
 
         Returns:
-            The agent's response.
+            The agent's outbound response envelope.
         """
         await self._connect_mcp()
         msg = InboundMessage(
@@ -906,7 +1112,7 @@ Respond with ONLY valid JSON, no markdown fences."""
             blocked_tool_names=blocked_tool_names,
             require_tool_use=require_tool_use,
         )
-        return response.content if response else ""
+        return response
 
     async def list_registered_tools(self, *, connect_mcp: bool = True) -> list[str]:
         """List current registered tool names, optionally connecting MCP first."""

@@ -43,7 +43,8 @@ async def test_agent_loop_process_direct_records_layered_memory(tmp_path: Path) 
         channel="cli",
         chat_id="chat-layered",
     )
-    assert result == "收到"
+    assert result is not None
+    assert result.content == "收到"
 
     memory_dir = tmp_path / "memory"
     assert (memory_dir / "PROFILE.json").exists()

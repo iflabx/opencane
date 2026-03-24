@@ -1,6 +1,7 @@
 """Session management for conversation history."""
 
 import json
+import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -8,7 +9,13 @@ from typing import Any
 
 from loguru import logger
 
-from opencane.utils.helpers import ensure_dir, get_data_path, safe_filename
+from opencane.utils.helpers import (
+    ensure_dir,
+    get_data_path,
+    get_legacy_data_path,
+    get_primary_data_path,
+    safe_filename,
+)
 
 
 @dataclass
@@ -41,9 +48,58 @@ class Session:
         self.messages.append(msg)
         self.updated_at = datetime.now()
 
+    @staticmethod
+    def _find_legal_start(messages: list[dict[str, Any]]) -> int:
+        """Find first index where every tool result has a matching assistant tool_call."""
+        declared: set[str] = set()
+        start = 0
+        for i, msg in enumerate(messages):
+            role = msg.get("role")
+            if role == "assistant":
+                for tc in msg.get("tool_calls") or []:
+                    if isinstance(tc, dict) and tc.get("id"):
+                        declared.add(str(tc["id"]))
+            elif role == "tool":
+                tid = msg.get("tool_call_id")
+                if tid and str(tid) not in declared:
+                    start = i + 1
+                    declared.clear()
+                    for prev in messages[start : i + 1]:
+                        if prev.get("role") != "assistant":
+                            continue
+                        for tc in prev.get("tool_calls") or []:
+                            if isinstance(tc, dict) and tc.get("id"):
+                                declared.add(str(tc["id"]))
+        return start
+
     def get_history(self, max_messages: int = 500) -> list[dict[str, Any]]:
-        """Get recent messages in LLM format (role + content only)."""
-        return [{"role": m["role"], "content": m["content"]} for m in self.messages[-max_messages:]]
+        """Get unconsolidated history in LLM format, trimmed to a legal tool boundary."""
+        unconsolidated = self.messages[self.last_consolidated :]
+        sliced = unconsolidated[-max_messages:]
+
+        # Prefer starting from a user turn when possible.
+        for idx, msg in enumerate(sliced):
+            if msg.get("role") == "user":
+                sliced = sliced[idx:]
+                break
+
+        # Some providers reject orphan tool results if matching assistant
+        # tool_calls fell outside the fixed-size history window.
+        start = self._find_legal_start(sliced)
+        if start:
+            sliced = sliced[start:]
+
+        out: list[dict[str, Any]] = []
+        for msg in sliced:
+            entry: dict[str, Any] = {
+                "role": msg.get("role"),
+                "content": msg.get("content", ""),
+            }
+            for key in ("tool_calls", "tool_call_id", "name"):
+                if key in msg:
+                    entry[key] = msg[key]
+            out.append(entry)
+        return out
 
     def clear(self) -> None:
         """Clear all messages and reset session to initial state."""
@@ -61,13 +117,32 @@ class SessionManager:
 
     def __init__(self, workspace: Path):
         self.workspace = workspace
-        self.sessions_dir = ensure_dir(get_data_path() / "sessions")
+        self.sessions_dir = ensure_dir(self.workspace / "sessions")
+        legacy_roots = [
+            get_primary_data_path(),
+            get_legacy_data_path(),
+            get_data_path(),
+        ]
+        seen: set[Path] = set()
+        self.legacy_sessions_dirs: list[Path] = []
+        current_dir = self.sessions_dir.resolve()
+        for root in legacy_roots:
+            candidate = (root / "sessions").expanduser().resolve()
+            if candidate == current_dir or candidate in seen:
+                continue
+            seen.add(candidate)
+            self.legacy_sessions_dirs.append(candidate)
         self._cache: dict[str, Session] = {}
 
     def _get_session_path(self, key: str) -> Path:
         """Get the file path for a session."""
         safe_key = safe_filename(key.replace(":", "_"))
         return self.sessions_dir / f"{safe_key}.jsonl"
+
+    def _get_legacy_session_paths(self, key: str) -> list[Path]:
+        """Get legacy session paths for backward compatibility."""
+        safe_key = safe_filename(key.replace(":", "_"))
+        return [path / f"{safe_key}.jsonl" for path in self.legacy_sessions_dirs]
 
     def get_or_create(self, key: str) -> Session:
         """
@@ -94,6 +169,19 @@ class SessionManager:
         path = self._get_session_path(key)
 
         if not path.exists():
+            for legacy_path in self._get_legacy_session_paths(key):
+                if not legacy_path.exists():
+                    continue
+                try:
+                    path.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.move(str(legacy_path), str(path))
+                    logger.info(f"Migrated session {key} from legacy path")
+                except Exception as e:
+                    logger.warning(f"Failed to migrate legacy session {key}: {e}")
+                    path = legacy_path
+                break
+
+        if not path.exists():
             return None
 
         try:
@@ -102,7 +190,7 @@ class SessionManager:
             created_at = None
             last_consolidated = 0
 
-            with open(path) as f:
+            with open(path, encoding="utf-8") as f:
                 for line in f:
                     line = line.strip()
                     if not line:
@@ -132,9 +220,10 @@ class SessionManager:
         """Save a session to disk."""
         path = self._get_session_path(session.key)
 
-        with open(path, "w") as f:
+        with open(path, "w", encoding="utf-8") as f:
             metadata_line = {
                 "_type": "metadata",
+                "key": session.key,
                 "created_at": session.created_at.isoformat(),
                 "updated_at": session.updated_at.isoformat(),
                 "metadata": session.metadata,
@@ -162,13 +251,14 @@ class SessionManager:
         for path in self.sessions_dir.glob("*.jsonl"):
             try:
                 # Read just the metadata line
-                with open(path) as f:
+                with open(path, encoding="utf-8") as f:
                     first_line = f.readline().strip()
                     if first_line:
                         data = json.loads(first_line)
                         if data.get("_type") == "metadata":
+                            key = data.get("key") or path.stem.replace("_", ":", 1)
                             sessions.append({
-                                "key": path.stem.replace("_", ":"),
+                                "key": key,
                                 "created_at": data.get("created_at"),
                                 "updated_at": data.get("updated_at"),
                                 "path": str(path)

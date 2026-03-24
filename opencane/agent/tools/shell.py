@@ -19,6 +19,7 @@ class ExecTool(Tool):
         deny_patterns: list[str] | None = None,
         allow_patterns: list[str] | None = None,
         restrict_to_workspace: bool = False,
+        path_append: str = "",
     ):
         self.timeout = timeout
         self.working_dir = working_dir
@@ -26,7 +27,8 @@ class ExecTool(Tool):
             r"\brm\s+-[rf]{1,2}\b",          # rm -r, rm -rf, rm -fr
             r"\bdel\s+/[fq]\b",              # del /f, del /q
             r"\brmdir\s+/s\b",               # rmdir /s
-            r"\b(format|mkfs|diskpart)\b",   # disk operations
+            r"(?:^|[;&|]\s*)format\b",       # format (standalone command only)
+            r"\b(mkfs|diskpart)\b",          # disk operations
             r"\bdd\s+if=",                   # dd
             r">\s*/dev/sd",                  # write to disk
             r"\b(shutdown|reboot|poweroff)\b",  # system power
@@ -34,6 +36,7 @@ class ExecTool(Tool):
         ]
         self.allow_patterns = allow_patterns or []
         self.restrict_to_workspace = restrict_to_workspace
+        self.path_append = path_append
 
     @property
     def name(self) -> str:
@@ -66,12 +69,17 @@ class ExecTool(Tool):
         if guard_error:
             return guard_error
 
+        env = os.environ.copy()
+        if self.path_append:
+            env["PATH"] = env.get("PATH", "") + os.pathsep + self.path_append
+
         try:
             process = await asyncio.create_subprocess_shell(
                 command,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=env,
             )
 
             try:
@@ -81,6 +89,11 @@ class ExecTool(Tool):
                 )
             except asyncio.TimeoutError:
                 process.kill()
+                # Wait for process termination so subprocess pipes are closed.
+                try:
+                    await asyncio.wait_for(process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    pass
                 return f"Error: Command timed out after {self.timeout} seconds"
 
             output_parts = []
@@ -121,24 +134,32 @@ class ExecTool(Tool):
             if not any(re.search(p, lower) for p in self.allow_patterns):
                 return "Error: Command blocked by safety guard (not in allowlist)"
 
+        from opencane.security.network import contains_internal_url
+        if contains_internal_url(cmd):
+            return "Error: Command blocked by safety guard (internal/private URL detected)"
+
         if self.restrict_to_workspace:
             if "..\\" in cmd or "../" in cmd:
                 return "Error: Command blocked by safety guard (path traversal detected)"
 
             cwd_path = Path(cwd).resolve()
 
-            win_paths = re.findall(r"[A-Za-z]:\\[^\\\"']+", cmd)
-            # Only match absolute paths — avoid false positives on relative
-            # paths like ".venv/bin/python" where "/bin/python" would be
-            # incorrectly extracted by the old pattern.
-            posix_paths = re.findall(r"(?:^|[\s|>])(/[^\s\"'>]+)", cmd)
-
-            for raw in win_paths + posix_paths:
+            for raw in self._extract_absolute_paths(cmd):
                 try:
-                    p = Path(raw.strip()).resolve()
+                    expanded = os.path.expandvars(raw.strip())
+                    p = Path(expanded).expanduser().resolve()
                 except Exception:
                     continue
                 if p.is_absolute() and cwd_path not in p.parents and p != cwd_path:
                     return "Error: Command blocked by safety guard (path outside working dir)"
 
         return None
+
+    @staticmethod
+    def _extract_absolute_paths(command: str) -> list[str]:
+        # Match Windows absolute paths without truncating at backslashes.
+        win_paths = re.findall(r"[A-Za-z]:\\[^\s\"'|><;]+", command)
+        # Match POSIX absolute paths and ~/home shortcuts (including quoted).
+        posix_paths = re.findall(r"(?:^|[\s|>'\"])(/[^\s\"'>;|<]+)", command)
+        home_paths = re.findall(r"(?:^|[\s|>'\"])(~[^\s\"'>;|<]*)", command)
+        return win_paths + posix_paths + home_paths

@@ -2,6 +2,7 @@ from typing import Any
 
 from opencane.agent.tools.base import Tool
 from opencane.agent.tools.registry import ToolRegistry
+from opencane.agent.tools.shell import ExecTool
 
 
 class SampleTool(Tool):
@@ -86,3 +87,83 @@ async def test_registry_returns_validation_error() -> None:
     reg.register(SampleTool())
     result = await reg.execute("sample", {"query": "hi"})
     assert "Invalid parameters" in result
+
+
+def test_exec_extract_absolute_paths_keeps_full_windows_path() -> None:
+    cmd = r"type C:\user\workspace\txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert paths == [r"C:\user\workspace\txt"]
+
+
+def test_exec_extract_absolute_paths_ignores_relative_posix_segments() -> None:
+    cmd = ".venv/bin/python script.py"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/bin/python" not in paths
+
+
+def test_exec_extract_absolute_paths_captures_posix_absolute_paths() -> None:
+    cmd = "cat /tmp/data.txt > /tmp/out.txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/tmp/data.txt" in paths
+    assert "/tmp/out.txt" in paths
+
+
+def test_exec_extract_absolute_paths_captures_home_paths() -> None:
+    cmd = "cat ~/.opencane/config.json > ~/out.txt"
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "~/.opencane/config.json" in paths
+    assert "~/out.txt" in paths
+
+
+def test_exec_extract_absolute_paths_captures_quoted_paths() -> None:
+    cmd = 'cat "/tmp/data.txt" "~/.opencane/config.json"'
+    paths = ExecTool._extract_absolute_paths(cmd)
+    assert "/tmp/data.txt" in paths
+    assert "~/.opencane/config.json" in paths
+
+
+def test_exec_guard_blocks_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command("cat ~/.opencane/config.json", str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+def test_exec_guard_blocks_quoted_home_path_outside_workspace(tmp_path) -> None:
+    tool = ExecTool(restrict_to_workspace=True)
+    error = tool._guard_command('cat "~/.opencane/config.json"', str(tmp_path))
+    assert error == "Error: Command blocked by safety guard (path outside working dir)"
+
+
+class NullableTool(Tool):
+    @property
+    def name(self) -> str:
+        return "nullable"
+
+    @property
+    def description(self) -> str:
+        return "nullable tool"
+
+    @property
+    def parameters(self) -> dict[str, Any]:
+        return {
+            "type": "object",
+            "properties": {
+                "name": {"type": ["string", "null"]},
+                "nickname": {"type": "string", "nullable": True},
+            },
+        }
+
+    async def execute(self, **kwargs: Any) -> str:
+        return "ok"
+
+
+def test_validate_nullable_type_union_accepts_none() -> None:
+    tool = NullableTool()
+    errors = tool.validate_params({"name": None})
+    assert errors == []
+
+
+def test_validate_nullable_flag_accepts_none() -> None:
+    tool = NullableTool()
+    errors = tool.validate_params({"nickname": None})
+    assert errors == []

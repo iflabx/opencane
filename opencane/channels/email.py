@@ -6,6 +6,7 @@ import imaplib
 import re
 import smtplib
 import ssl
+from collections import deque
 from datetime import date
 from email import policy
 from email.header import decode_header, make_header
@@ -49,6 +50,21 @@ class EmailChannel(BaseChannel):
         "Nov",
         "Dec",
     )
+    _IMAP_RECONNECT_MARKERS = (
+        "disconnected for inactivity",
+        "eof occurred in violation of protocol",
+        "socket error",
+        "connection reset",
+        "broken pipe",
+        "bye",
+    )
+    _IMAP_MISSING_MAILBOX_MARKERS = (
+        "mailbox doesn't exist",
+        "select failed",
+        "no such mailbox",
+        "can't open mailbox",
+        "does not exist",
+    )
 
     def __init__(self, config: EmailConfig, bus: MessageBus):
         super().__init__(config, bus)
@@ -56,6 +72,7 @@ class EmailChannel(BaseChannel):
         self._last_subject_by_chat: dict[str, str] = {}
         self._last_message_id_by_chat: dict[str, str] = {}
         self._processed_uids: set[str] = set()  # Capped to prevent unbounded growth
+        self._processed_uid_order: deque[str] = deque()
         self._MAX_PROCESSED_UIDS = 100000
 
     async def start(self) -> None:
@@ -226,8 +243,37 @@ class EmailChannel(BaseChannel):
         dedupe: bool,
         limit: int,
     ) -> list[dict[str, Any]]:
-        """Fetch messages by arbitrary IMAP search criteria."""
         messages: list[dict[str, Any]] = []
+        cycle_uids: set[str] = set()
+
+        for attempt in range(2):
+            try:
+                self._fetch_messages_once(
+                    search_criteria,
+                    mark_seen,
+                    dedupe,
+                    limit,
+                    messages,
+                    cycle_uids,
+                )
+                return messages
+            except Exception as exc:
+                if attempt == 1 or not self._is_stale_imap_error(exc):
+                    raise
+                logger.warning("Email IMAP connection went stale, retrying once: {}", exc)
+
+        return messages
+
+    def _fetch_messages_once(
+        self,
+        search_criteria: tuple[str, ...],
+        mark_seen: bool,
+        dedupe: bool,
+        limit: int,
+        messages: list[dict[str, Any]],
+        cycle_uids: set[str],
+    ) -> None:
+        """Fetch messages by arbitrary IMAP search criteria."""
         mailbox = self.config.imap_mailbox or "INBOX"
 
         if self.config.imap_use_ssl:
@@ -237,13 +283,20 @@ class EmailChannel(BaseChannel):
 
         try:
             client.login(self.config.imap_username, self.config.imap_password)
-            status, _ = client.select(mailbox)
+            try:
+                status, _ = client.select(mailbox)
+            except Exception as exc:
+                if self._is_missing_mailbox_error(exc):
+                    logger.warning("Email mailbox unavailable, skipping poll for {}: {}", mailbox, exc)
+                    return
+                raise
             if status != "OK":
-                return messages
+                logger.warning("Email mailbox select returned {}, skipping poll for {}", status, mailbox)
+                return
 
             status, data = client.search(None, *search_criteria)
             if status != "OK" or not data:
-                return messages
+                return
 
             ids = data[0].split()
             if limit > 0 and len(ids) > limit:
@@ -258,6 +311,8 @@ class EmailChannel(BaseChannel):
                     continue
 
                 uid = self._extract_uid(fetched)
+                if uid and uid in cycle_uids:
+                    continue
                 if dedupe and uid and uid in self._processed_uids:
                     continue
 
@@ -300,11 +355,10 @@ class EmailChannel(BaseChannel):
                     }
                 )
 
+                if uid:
+                    cycle_uids.add(uid)
                 if dedupe and uid:
-                    self._processed_uids.add(uid)
-                    # mark_seen is the primary dedup; this set is a safety net
-                    if len(self._processed_uids) > self._MAX_PROCESSED_UIDS:
-                        self._processed_uids.clear()
+                    self._remember_processed_uid(uid)
 
                 if mark_seen:
                     client.store(imap_id, "+FLAGS", "\\Seen")
@@ -314,7 +368,30 @@ class EmailChannel(BaseChannel):
             except Exception:
                 pass
 
-        return messages
+    @classmethod
+    def _is_stale_imap_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(marker in message for marker in cls._IMAP_RECONNECT_MARKERS)
+
+    @classmethod
+    def _is_missing_mailbox_error(cls, exc: Exception) -> bool:
+        message = str(exc).lower()
+        return any(marker in message for marker in cls._IMAP_MISSING_MAILBOX_MARKERS)
+
+    def _remember_processed_uid(self, uid: str) -> None:
+        """Track a processed UID and evict oldest entries when over capacity."""
+        if uid in self._processed_uids:
+            return
+        self._processed_uids.add(uid)
+        self._processed_uid_order.append(uid)
+
+        if len(self._processed_uids) <= self._MAX_PROCESSED_UIDS:
+            return
+
+        keep = max(self._MAX_PROCESSED_UIDS // 2, 1)
+        while len(self._processed_uids) > keep and self._processed_uid_order:
+            stale = self._processed_uid_order.popleft()
+            self._processed_uids.discard(stale)
 
     @classmethod
     def _format_imap_date(cls, value: date) -> str:

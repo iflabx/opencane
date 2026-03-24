@@ -1,12 +1,77 @@
 """MCP client: connects to MCP servers and wraps their tools as native OpenCane tools."""
 
+import asyncio
 from contextlib import AsyncExitStack
 from typing import Any
 
+import httpx
 from loguru import logger
 
 from opencane.agent.tools.base import Tool
 from opencane.agent.tools.registry import ToolRegistry
+
+MCP_TOOL_TIMEOUT = 30
+
+
+def _extract_nullable_branch(options: Any) -> tuple[dict[str, Any], bool] | None:
+    """Return the single non-null branch for nullable unions."""
+    if not isinstance(options, list):
+        return None
+
+    non_null: list[dict[str, Any]] = []
+    saw_null = False
+    for option in options:
+        if not isinstance(option, dict):
+            return None
+        if option.get("type") == "null":
+            saw_null = True
+            continue
+        non_null.append(option)
+
+    if saw_null and len(non_null) == 1:
+        return non_null[0], True
+    return None
+
+
+def _normalize_schema_for_openai(schema: Any) -> dict[str, Any]:
+    """Normalize only nullable JSON Schema patterns for tool definitions."""
+    if not isinstance(schema, dict):
+        return {"type": "object", "properties": {}}
+
+    normalized = dict(schema)
+
+    raw_type = normalized.get("type")
+    if isinstance(raw_type, list):
+        non_null = [item for item in raw_type if item != "null"]
+        if "null" in raw_type and len(non_null) == 1:
+            normalized["type"] = non_null[0]
+            normalized["nullable"] = True
+
+    for key in ("oneOf", "anyOf"):
+        nullable_branch = _extract_nullable_branch(normalized.get(key))
+        if nullable_branch is not None:
+            branch, _ = nullable_branch
+            merged = {k: v for k, v in normalized.items() if k != key}
+            merged.update(branch)
+            normalized = merged
+            normalized["nullable"] = True
+            break
+
+    if "properties" in normalized and isinstance(normalized["properties"], dict):
+        normalized["properties"] = {
+            name: _normalize_schema_for_openai(prop) if isinstance(prop, dict) else prop
+            for name, prop in normalized["properties"].items()
+        }
+
+    if "items" in normalized and isinstance(normalized["items"], dict):
+        normalized["items"] = _normalize_schema_for_openai(normalized["items"])
+
+    if normalized.get("type") != "object":
+        return normalized
+
+    normalized.setdefault("properties", {})
+    normalized.setdefault("required", [])
+    return normalized
 
 
 class MCPToolWrapper(Tool):
@@ -17,7 +82,8 @@ class MCPToolWrapper(Tool):
         self._original_name = tool_def.name
         self._name = f"mcp_{server_name}_{tool_def.name}"
         self._description = tool_def.description or tool_def.name
-        self._parameters = tool_def.inputSchema or {"type": "object", "properties": {}}
+        raw_schema = tool_def.inputSchema or {"type": "object", "properties": {}}
+        self._parameters = _normalize_schema_for_openai(raw_schema)
 
     @property
     def name(self) -> str:
@@ -33,7 +99,14 @@ class MCPToolWrapper(Tool):
 
     async def execute(self, **kwargs: Any) -> str:
         from mcp import types
-        result = await self._session.call_tool(self._original_name, arguments=kwargs)
+        try:
+            result = await asyncio.wait_for(
+                self._session.call_tool(self._original_name, arguments=kwargs),
+                timeout=MCP_TOOL_TIMEOUT,
+            )
+        except asyncio.TimeoutError:
+            logger.warning("MCP tool '{}' timed out after {}s", self._name, MCP_TOOL_TIMEOUT)
+            return f"(MCP tool call timed out after {MCP_TOOL_TIMEOUT}s)"
         parts = []
         for block in result.content:
             if isinstance(block, types.TextContent):
@@ -59,8 +132,11 @@ async def connect_mcp_servers(
                 read, write = await stack.enter_async_context(stdio_client(params))
             elif cfg.url:
                 from mcp.client.streamable_http import streamable_http_client
+                http_client = await stack.enter_async_context(
+                    httpx.AsyncClient(follow_redirects=True, timeout=None)
+                )
                 read, write, _ = await stack.enter_async_context(
-                    streamable_http_client(cfg.url)
+                    streamable_http_client(cfg.url, http_client=http_client)
                 )
             else:
                 logger.warning(f"MCP server '{name}': no command or url configured, skipping")

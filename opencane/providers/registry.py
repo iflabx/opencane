@@ -51,6 +51,9 @@ class ProviderSpec:
     # per-model param overrides, e.g. (("kimi-k2.5", {"temperature": 1.0}),)
     model_overrides: tuple[tuple[str, dict[str, Any]], ...] = ()
 
+    # Provider supports cache_control on content blocks (e.g. Anthropic prompt caching)
+    supports_prompt_caching: bool = False
+
     @property
     def label(self) -> str:
         return self.display_name or self.name.title()
@@ -95,6 +98,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="https://openrouter.ai/api/v1",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_prompt_caching=True,
     ),
 
     # AiHubMix: global gateway, OpenAI-compatible interface.
@@ -117,6 +121,25 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         model_overrides=(),
     ),
 
+    # SiliconFlow: OpenAI-compatible gateway hosting multiple models.
+    # Keep model org prefixes (e.g. "Qwen/Qwen2.5-14B-Instruct").
+    ProviderSpec(
+        name="siliconflow",
+        keywords=("siliconflow",),
+        env_key="OPENAI_API_KEY",           # OpenAI-compatible
+        display_name="SiliconFlow",
+        litellm_prefix="openai",            # → openai/{model}
+        skip_prefixes=(),
+        env_extras=(),
+        is_gateway=True,
+        is_local=False,
+        detect_by_key_prefix="",
+        detect_by_base_keyword="siliconflow",
+        default_api_base="https://api.siliconflow.cn/v1",
+        strip_model_prefix=False,
+        model_overrides=(),
+    ),
+
     # === Standard providers (matched by model-name keywords) ===============
 
     # Anthropic: LiteLLM recognizes "claude-*" natively, no prefix needed.
@@ -135,6 +158,7 @@ PROVIDERS: tuple[ProviderSpec, ...] = (
         default_api_base="",
         strip_model_prefix=False,
         model_overrides=(),
+        supports_prompt_caching=True,
     ),
 
     # OpenAI: LiteLLM recognizes "gpt-*" natively, no prefix needed.
@@ -326,10 +350,18 @@ def find_by_model(model: str) -> ProviderSpec | None:
     """Match a standard provider by model-name keyword (case-insensitive).
     Skips gateways/local — those are matched by api_key/api_base instead."""
     model_lower = model.lower()
-    for spec in PROVIDERS:
-        if spec.is_gateway or spec.is_local:
-            continue
-        if any(kw in model_lower for kw in spec.keywords):
+    model_normalized = model_lower.replace("-", "_")
+    model_prefix = model_lower.split("/", 1)[0] if "/" in model_lower else ""
+    normalized_prefix = model_prefix.replace("-", "_")
+    std_specs = [s for s in PROVIDERS if not s.is_gateway and not s.is_local]
+
+    # Explicit provider prefix wins over generic keyword matches.
+    for spec in std_specs:
+        if model_prefix and normalized_prefix == spec.name:
+            return spec
+
+    for spec in std_specs:
+        if any(kw in model_lower or kw.replace("-", "_") in model_normalized for kw in spec.keywords):
             return spec
     return None
 

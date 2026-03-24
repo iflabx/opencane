@@ -48,6 +48,9 @@ opencane config check --strict
 
 - `hardware.auth.enabled`
 - `hardware.auth.token`
+- `tools.exec.enable`（关闭后不注册 shell `exec` 工具）
+- `tools.exec.pathAppend`（可选 PATH 追加目录，供 `exec` 子进程使用）
+- `tools.restrictToWorkspace`（限制工具只能访问工作区）
 - `safety.*`
 - `interaction.*`
 
@@ -59,7 +62,7 @@ opencane config check --strict
 
 ## 4. 环境变量兼容说明
 
-- 当前配置模型仍兼容 `NANOBOT_` 前缀环境变量（用于历史部署平滑迁移）
+- 当前配置模型仍兼容历史前缀环境变量（用于历史部署平滑迁移）
 - 新部署建议优先使用配置文件（`~/.opencane/config.json`）统一管理
 
 ## 5. 真实硬件生产 Docker（单容器）
